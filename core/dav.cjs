@@ -1,5 +1,5 @@
 'use strict';
-const {uuid,validateRevision,validateGraph,assetsOf}=require('./model.cjs');
+const {uuid,validateRevision,validateGraph,assetsOf,validateDevice}=require('./model.cjs');
 const crypto=require('node:crypto');
 function normalizeConfig(raw){
   const out={primary:String(raw.primary||'').trim(),secondary:String(raw.secondary||'').trim(),directory:String(raw.directory||'').trim(),username:String(raw.username||''),password:String(raw.password||''),auto:raw.auto!==false};
@@ -40,7 +40,7 @@ class Dav{
     if(!this.root)await this.connect();const u=new URL(this.root),segments=u.pathname.split('/').filter(Boolean);let p='';
     const ensureDir=async url=>{const current=await this.request('PROPFIND',url,{headers:{Depth:'0','Content-Type':'application/xml'},body:'<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',accept:[200,207,404]});if(current.status===404)await this.request('MKCOL',url,{accept:[200,201,204,405]});};
     for(const seg of segments){p+='/'+seg;await ensureDir(u.origin+p+'/');}
-    for(const dir of ['revisions','assets'])await ensureDir(this.root+dir+'/');
+    for(const dir of ['revisions','assets','devices'])await ensureDir(this.root+dir+'/');
   }
   async list(dir){const url=this.root+dir+'/';const r=await this.request('PROPFIND',url,{headers:{Depth:'1','Content-Type':'application/xml'},body:'<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>',limit:32*1024*1024});return listing(r.body.toString('utf8'),url);}
   async get(file,max=128*1024*1024){return(await this.request('GET',this.root+file,{limit:max})).body;}
@@ -60,16 +60,33 @@ class Sync{
     const store=this.store,dav=new Dav(config);const progress=(phase,current=0,total=0)=>this.notify({running:true,phase,current,total,...store.status()});
     try{
       progress('正在连接');await dav.connect();await dav.ensure();await dav.dataset(store);
-      const remoteIds=(await dav.list('revisions')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5));
-      const incoming=[],needed=remoteIds.filter(id=>!store.revisions.has(id));
-      for(let i=0;i<needed.length;i++){progress('下载文字',i+1,needed.length);const data=await dav.get('revisions/'+needed[i]+'.json',4*1024*1024);const r=validateRevision(JSON.parse(data));if(r.id!==needed[i])throw Error('远程记录校验失败');incoming.push(r);}
-      validateGraph([...store.revisions.values(),...incoming]);for(const r of incoming)store.importRevision(r);
-      const remoteAssets=new Set((await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4)));
-      const referenced=[...new Set([...store.revisions.values()].flatMap(assetsOf))];const photos=referenced.filter(id=>!store.hasAsset(id));
-      for(let i=0;i<photos.length;i++){progress('下载照片',i+1,photos.length);if(!remoteAssets.has(photos[i]))throw Error('远程记录引用的图片还未上传，请稍后重试');store.importAsset(photos[i],await dav.get('assets/'+photos[i]+'.bin',50*1024*1024));}
-      // A name left by a failed PUT is not proof of a completed transfer.
-      const previouslyConfirmedAssets=new Set(store.remote.assets||[]);
-      const uploads=store.assetIds().filter(id=>!remoteAssets.has(id)||!previouslyConfirmedAssets.has(id));
+      // Publish our label before our revisions, so a peer receiving those
+      // revisions can already resolve their source device without another run.
+      const own=store.deviceInfo(),deviceFile='devices/'+own.deviceId+'.json';
+      const existingDevice=await dav.request('GET',dav.root+deviceFile,{accept:[200,404],limit:10000});
+      let ownRemote=null;if(existingDevice.status===200)try{ownRemote=validateDevice(JSON.parse(existingDevice.body));}catch{}
+      if(JSON.stringify(ownRemote)!==JSON.stringify(own)){await dav.put(deviceFile,JSON.stringify(own),true);const check=validateDevice(JSON.parse(await dav.get(deviceFile,10000)));if(JSON.stringify(check)!==JSON.stringify(own))throw Error('设备名称写入校验失败，请重试');}
+      const confirmedRecords=new Set(store.remote.revisions||[]),confirmedAssets=new Set(store.remote.assets||[]),received=new Set();
+      let remoteIds=[],remoteAssets=new Set();
+      const pull=async()=>{
+        remoteIds=(await dav.list('revisions')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5));
+        const incoming=new Map(),needed=remoteIds.filter(id=>!store.revisions.has(id)),queued=new Set(needed);
+        for(let i=0;i<needed.length;i++){
+          progress('下载文字',i+1,needed.length);const id=needed[i],r=validateRevision(JSON.parse(await dav.get('revisions/'+id+'.json',4*1024*1024)));
+          if(r.id!==id)throw Error('远程记录校验失败');incoming.set(id,r);
+          // A listing can race a peer's upload. Fetch its causal parents too.
+          for(const parent of r.parents)if(!store.revisions.has(parent)&&!queued.has(parent)){queued.add(parent);needed.push(parent);}
+        }
+        validateGraph([...store.revisions.values(),...incoming.values()]);
+        for(const r of incoming.values()){store.importRevision(r);confirmedRecords.add(r.id);received.add(r.id);}
+        remoteAssets=new Set((await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4)));
+        const photos=[...new Set([...store.revisions.values()].flatMap(assetsOf))].filter(id=>!store.hasAsset(id));
+        for(let i=0;i<photos.length;i++){progress('下载照片',i+1,photos.length);const id=photos[i];if(!remoteAssets.has(id))throw Error('远程记录引用的图片还未上传，请稍后重试');store.importAsset(id,await dav.get('assets/'+id+'.bin',50*1024*1024));confirmedAssets.add(id);}
+      };
+      await pull();
+      // Freeze one outgoing snapshot so an edit made mid-transfer cannot publish
+      // a revision before its new image or parent has reached the server.
+      const snapshot=validateGraph([...store.revisions.values()]),uploads=store.assetIds().filter(id=>!remoteAssets.has(id)||!confirmedAssets.has(id));
       for(let i=0;i<uploads.length;i++){
         progress('上传照片',i+1,uploads.length);const id=uploads[i],file='assets/'+id+'.bin',data=store.readAsset(id);const result=await dav.put(file,data);
         let actual=await dav.get(file,50*1024*1024);
@@ -78,9 +95,10 @@ class Sync{
           // Only repair a damaged file under the exact hash of our intact original.
           await dav.put(file,data,true);actual=await dav.get(file,50*1024*1024);
           if(crypto.createHash('sha256').update(actual).digest('hex')!==id)throw Error('远程照片写入校验失败，请重新同步');
-        }remoteAssets.add(id);
+        }remoteAssets.add(id);confirmedAssets.add(id);
       }
-      const remoteSet=new Set(remoteIds),previouslyConfirmedRecords=new Set(store.remote.revisions||[]),revisions=[...store.revisions.values()].filter(r=>!remoteSet.has(r.id)||!previouslyConfirmedRecords.has(r.id));
+      // Causal order is important after a restart, when disk filenames are random.
+      const remoteSet=new Set(remoteIds),revisions=snapshot.filter(r=>!remoteSet.has(r.id)||!confirmedRecords.has(r.id));
       for(let i=0;i<revisions.length;i++){
         progress('上传文字',i+1,revisions.length);const r=revisions[i],file='revisions/'+r.id+'.json',data=JSON.stringify(r),result=await dav.put(file,data);let verified;
         const actual=await dav.get(file,4*1024*1024);
@@ -89,12 +107,23 @@ class Sync{
           // A valid differing revision is never replaced; a truncated JSON PUT can be retried.
           await dav.put(file,data,true);verified=validateRevision(JSON.parse(await dav.get(file,4*1024*1024)));
         }
-        if(data!==JSON.stringify(verified))throw Error('远程记录写入校验失败');remoteSet.add(r.id);
+        if(data!==JSON.stringify(verified))throw Error('远程记录写入校验失败');remoteSet.add(r.id);confirmedRecords.add(r.id);
       }
-      // Listings confirm all files exist; edits made during this run remain queued.
-      const confirmedRecords=(await dav.list('revisions')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5));
-      const confirmedAssets=(await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4));
-      store.updateRemote({revisions:confirmedRecords,assets:confirmedAssets,lastSync:new Date().toISOString(),lastError:null});store.autoBackup();const status=store.status();this.notify({running:false,phase:'同步结束',receivedRecords:incoming.length,...status});return status;
+      // A second device may have uploaded since our first listing. Pull again,
+      // with a bound so continuous remote typing cannot keep this run alive forever.
+      for(let round=0;round<2;round++)await pull();
+      progress('同步设备名称');
+      for(const file of (await dav.list('devices')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n))){
+        const d=validateDevice(JSON.parse(await dav.get('devices/'+file,10000)));if(file!==d.deviceId+'.json')throw Error('远程设备编号不匹配');
+        if(d.deviceId!==own.deviceId)store.importDevice(d);
+      }
+      const finalRecords=(await dav.list('revisions')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5));
+      const finalAssets=(await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4));
+      const pendingDownloads=finalRecords.filter(id=>!store.revisions.has(id)).length;
+      // File names alone never certify a transfer, including interrupted PUTs.
+      store.updateRemote({revisions:finalRecords.filter(id=>confirmedRecords.has(id)),assets:finalAssets.filter(id=>confirmedAssets.has(id)),pendingDownloads,deviceVersion:own.updatedAt,lastError:null});
+      const pending=store.status();if(!pending.pendingRecords&&!pending.pendingPhotos&&!pending.missingPhotos&&!pending.pendingDownloads&&!pending.pendingDevice)store.updateRemote({lastSync:new Date().toISOString()});
+      store.autoBackup();const status=store.status();this.notify({running:false,phase:'同步结束',receivedRecords:received.size,...status});return status;
     }catch(e){store.updateRemote({lastError:e.message});this.notify({running:false,phase:'同步未完成',...store.status()});throw e;}
   }
 }

@@ -1,6 +1,6 @@
 # 版本管理
 
-私人仓库：[xijue2001/riye](https://github.com/xijue2001/riye)。main保存经过检查的当前源码；新功能在feature分支修改，通过测试后合并。安装包放在GitHub Releases，不提交到源码历史。
+开源仓库：[xijue2001/riye](https://github.com/xijue2001/riye)。main保存经过检查的当前源码；新功能在feature分支修改，通过测试后合并。安装包放在GitHub Releases，不提交到源码历史。
 
 ## 已交付的两个历史版本
 
@@ -11,7 +11,7 @@
 
 ## 后续统一升版
 
-下一个版本从0.1.1开始。根package.json是主版本，Android的versionCode每次递增，mobile元数据与锁文件一起更新：
+从0.1.1起统一升版。下次修复使用0.1.2，下面以0.1.1为示例。根package.json是主版本，Android的versionCode每次递增，mobile元数据与锁文件一起更新：
 
 ```sh
 python3 scripts/versions.py bump 0.1.1

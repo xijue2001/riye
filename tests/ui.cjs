@@ -9,7 +9,7 @@ const localDate=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.ge
 const prev=day=>{const d=new Date(day+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 async function start(){electron=await _electron.launch({executablePath,args:['--no-sandbox','--ozone-platform=headless','--disable-gpu',appRoot],env:{...process.env,RIYE_TEST_MODE:'1',RIYE_DATA_DIR:root},timeout:20000});const page=await electron.firstWindow();await page.setViewportSize({width:1440,height:1000});await page.waitForSelector('[data-document]');return page;}
 (async()=>{
-  let p=await start();const errors=[];p.on('pageerror',e=>errors.push(e.message));const day=localDate(),intent='note:'+day+':intent',diary='note:'+day+':diary';
+  let p=await start();assert.equal(await p.locator('.schedule-grid,.schedule-empty').count(),0);assert((await p.locator('.daily-plan-empty').innerText()).includes('当天计划：无'));const errors=[];p.on('pageerror',e=>errors.push(e.message));const day=localDate(),intent='note:'+day+':intent',diary='note:'+day+':diary';
   await p.locator(`[data-document="${intent}"] [contenteditable]`).first().fill('联系供应商\n整理工作资料');
   await p.locator(`[data-action="insert-check"][data-doc="${intent}"]`).click();
   await p.locator(`[data-document="${intent}"] .block:has(input[type=checkbox]) [contenteditable]`).fill('英语听力练习');
@@ -26,7 +26,11 @@ async function start(){electron=await _electron.launch({executablePath,args:['--
   });
   await p.waitForSelector(`[data-document="${diary}"] img`);await p.waitForFunction(()=>document.querySelector('[data-document$=diary] img').complete&&document.querySelector('[data-document$=diary] img').naturalWidth===560);
   await p.locator(`[data-document="${diary}"] .caption-input`).fill('留下一张照片');
-  await p.locator('#main-date').fill(prev(day));await p.locator('#main-date').dispatchEvent('change');
+  await p.locator('#main-date').click();await p.waitForSelector('.calendar-grid');
+  const written=p.locator(`[data-action=calendar-pick][data-date="${day}"]`);assert((await written.getAttribute('aria-label')).includes('打算已写，日记已写'));assert.equal(await written.locator('.written').count(),2);
+  const empty=p.locator(`[data-action=calendar-pick][data-date="${prev(day)}"]`);assert((await empty.getAttribute('aria-label')).includes('打算未写，日记未写'));
+  await p.screenshot({path:path.join(appRoot,'.qa-calendar.png')});
+  await p.locator('#calendar-jump').fill(prev(day));await p.locator('#calendar-jump').dispatchEvent('change');
   await p.waitForSelector(`[data-document="note:${prev(day)}:intent"]`);await p.locator(`[data-document="note:${prev(day)}:intent"] [contenteditable]`).fill('完成了八件事\n还要联系售后\n还要整理账单');
   await p.locator('[data-action=day-today]').click();await p.waitForSelector(`[data-document="${intent}"]`);
   await p.waitForFunction(()=>document.getElementById('reference-copy').textContent.includes('还要整理账单'));
@@ -40,9 +44,13 @@ async function start(){electron=await _electron.launch({executablePath,args:['--
   await p.screenshot({path:path.join(appRoot,'.qa-today.png'),fullPage:true});
   const disk=new Store(root);assert.equal(disk.get(intent).revision.payload.blocks.find(b=>b.kind==='check').checked,true);assert.equal(disk.get('note:'+prev(day)+':intent').revision.payload.blocks[0].text,'完成了八件事\n还要联系售后\n还要整理账单');assert.equal(disk.assetIds().length,1);
   await p.locator('[data-page=history]').click();await p.locator('#history-search').fill('联系售后');assert.equal(await p.locator('.history-row').count(),2);
-  await p.locator('[data-page=settings]').click();await p.waitForSelector('#connection-form');await p.screenshot({path:path.join(appRoot,'.qa-settings.png'),fullPage:true});
+  await p.locator('[data-page=settings]').click();await p.waitForSelector('#connection-form');await p.locator('#device-name').fill('公司电脑');await p.locator('#device-name-form button[type=submit]').click();await p.waitForFunction(()=>document.getElementById('device-name-message').textContent.includes('已保存'));assert.equal(new Store(root).status().deviceName,'公司电脑');await p.screenshot({path:path.join(appRoot,'.qa-settings.png'),fullPage:true});
   const exportFile=path.join(root,'export.zip');await electron.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},exportFile);await p.locator('[data-action=export-backup]').click();await p.waitForFunction(()=>document.getElementById('toast').textContent==='完整备份已导出。');assert(fs.existsSync(exportFile));
   await p.locator('[data-page=today]').click();await p.waitForSelector(`[data-document="${diary}"]`);await p.locator(`[data-document="${diary}"] [contenteditable]`).last().fill('退出前最后一条文字。');
   const closed=electron.waitForEvent('close');await electron.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].close());await closed;electron=null;
-  const reopened=new Store(root);assert(reopened.get(diary).revision.payload.blocks.some(b=>b.text==='退出前最后一条文字。'));p=await start();assert((await p.locator(`[data-document="${diary}"]`).innerText()).includes('退出前最后一条文字。'));assert.equal(errors.length,0,errors.join('\n'));console.log('PASS: native desktop editing, checkboxes, pasted images, carryover, weekly plans, dated courses, search, ZIP export, save-on-close and restart.');
+  const reopened=new Store(root);assert(reopened.get(diary).revision.payload.blocks.some(b=>b.text==='退出前最后一条文字。'));p=await start();assert((await p.locator(`[data-document="${diary}"]`).innerText()).includes('退出前最后一条文字。'));
+  const time=await p.locator(`[data-doc-meta="${diary}"] .first-edit`).innerText();assert(/\d{2}:\d{2}:\d{2}/.test(time));assert((await p.locator(`[data-doc-meta="${diary}"] .record-source`).innerText()).includes('公司电脑'));
+  await p.locator('[data-page=history]').click();await p.locator(`[data-action=day-delete][data-date="${prev(day)}"]`).click();await p.locator('[data-action=day-delete-confirm]').click();await p.waitForFunction(date=>!document.querySelector(`[data-action=open-day][data-date="${date}"]`),prev(day));assert.equal(new Store(root).history().find(x=>x.date===prev(day)).deleted,true);
+  await p.locator('#include-deleted').check();await p.locator(`[data-doc="note:${prev(day)}:intent"][data-action=versions]`).click();await p.locator('.version').filter({hasText:'完成了八件事'}).first().locator('[data-action=version-restore]').click();await p.waitForFunction(date=>!!document.querySelector(`[data-action=day-delete][data-date="${date}"]`),prev(day));assert.equal(new Store(root).history().find(x=>x.date===prev(day)).hasIntent,true);
+  assert.equal(errors.length,0,errors.join('\n'));console.log('PASS: native desktop editing, checkboxes, pasted images, carryover, weekly plans, dated courses, search, ZIP export, save-on-close and restart.');
 })().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(electron)await electron.close();console.log('UI fixture directory:',root);});

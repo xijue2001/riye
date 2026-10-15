@@ -1,2 +1,4 @@
 f3e4c90cab30a77934906844eaa46c27bd841440c8e2ac04055169bf0f87b7e1  Riye-Windows-x64-v0.1.0.zip
 0a1087e1051faa2314b4c0c91bf6ca12b69d33eddb3aa8f594b833e647555c04  Riye-Android-v0.1.0.apk
+82660c6dd3ad88dcfbfbf706130b82d8b23455df8cfcdfe10a48f4026b899777  Riye-Windows-x64-v0.1.1.zip
+766d2a138c5e1e7a3acfee5c6e5cf2fc87c19d79a61d1fdfb69d8d8d6c655099  Riye-Android-v0.1.1.apk
