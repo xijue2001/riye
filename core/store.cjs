@@ -1,6 +1,6 @@
 'use strict';
 const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');
-const {uuid,localDate,validDate,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice}=require('./model.cjs');
+const {uuid,localDate,validDate,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice,selectHeads}=require('./model.cjs');
 const {makeZip,readZip}=require('./zip.cjs');
 function atomicWrite(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const tmp=file+'.'+uuid()+'.tmp';try{const fd=fs.openSync(tmp,'wx');try{fs.writeFileSync(fd,data);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(tmp,file);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}}
 class Store{
@@ -16,6 +16,7 @@ class Store{
     }
     this.remote={revisions:[],assets:[],lastSync:null,lastError:null};
     const state=path.join(root,'sync-state.json');if(fs.existsSync(state)){try{this.remote=JSON.parse(fs.readFileSync(state,'utf8'));}catch{}}
+    try{validateGraph([...this.revisions.values()]);this.reconcileConflicts();}catch(e){this.warnings.push('自动整理版本暂未完成：'+e.message);}
   }
   addIndex(r){this.revisions.set(r.id,r);if(!this.entities.has(r.entityId))this.entities.set(r.entityId,new Set());this.entities.get(r.entityId).add(r.id);}
   deviceInfo(){return validateDevice({format:'riye-device',schema:1,deviceId:this.profile.deviceId,name:this.profile.deviceName,updatedAt:this.profile.deviceNameUpdatedAt});}
@@ -24,7 +25,25 @@ class Store{
   setDeviceName(name){const d=validateDevice({...this.deviceInfo(),name,updatedAt:new Date(Math.max(Date.now(),Date.parse(this.profile.deviceNameUpdatedAt)+1)).toISOString()});this.profile.deviceName=d.name;this.profile.deviceNameUpdatedAt=d.updatedAt;atomicWrite(path.join(this.root,'profile.json'),JSON.stringify(this.profile));this.importDevice(d);return this.status();}
   setDataset(id){if(!/^[a-f0-9-]{36}$/.test(id))throw Error('同步目录标识不正确');if(this.profile.datasetId&&this.profile.datasetId!==id)throw Error('此同步目录属于另一份数据，请检查 WebDAV 地址和目录');this.profile.datasetId=id;atomicWrite(path.join(this.root,'profile.json'),JSON.stringify(this.profile));}
   all(entityId){return [...(this.entities.get(entityId)||[])].map(id=>this.revisions.get(id));}
-  get(entityId){const all=this.all(entityId),h=heads(all);const visible=h.filter(r=>!r.deleted);const first=all.filter(hasNoteContent).sort((a,b)=>a.timestamp.localeCompare(b.timestamp))[0];return{entityId,heads:h,revision:visible.at(-1)||h.at(-1)||null,conflict:h.length>1,firstEditedAt:first?.timestamp||null};}
+  get(entityId){const all=this.all(entityId),h=heads(all);const first=all.filter(hasNoteContent).sort((a,b)=>a.timestamp.localeCompare(b.timestamp))[0];return{entityId,heads:h,...selectHeads(h),firstEditedAt:first?.timestamp||null};}
+  reconcileConflicts(){
+    const merged=[];
+    for(const entityId of this.entities.keys()){
+      const record=this.get(entityId);if(record.heads.length<2||record.conflict)continue;
+      let remaining=record.heads;
+      while(remaining.length>1){
+        const group=remaining.slice(0,100),parents=group.map(r=>r.id).sort(),source=record.revision;
+        // All peers produce identical bytes and IDs for the same merge. Preserve
+        // source attribution, first-edit history and a plan's effective date.
+        const hex=crypto.createHash('sha256').update(JSON.stringify({format:'riye-auto-merge-v1',entityId,parents,source:source.id})).digest('hex');
+        const id=hex.slice(0,8)+'-'+hex.slice(8,12)+'-5'+hex.slice(13,16)+'-a'+hex.slice(17,20)+'-'+hex.slice(20,32);
+        const timestamp=source.timestamp>group.at(-1).timestamp?source.timestamp:group.at(-1).timestamp;
+        const r=this.importRevision({...source,id,parents,timestamp});merged.push(r);
+        remaining=[r,...remaining.slice(100)].sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.id.localeCompare(b.id));
+      }
+    }
+    return merged;
+  }
   getDay(day){if(!validDate(day))throw Error('日期不正确');return{date:day,intent:this.get('note:'+day+':intent'),diary:this.get('note:'+day+':diary'),schedule:this.schedule(day)};}
   importRevision(raw){const r=validateRevision(raw),existing=this.revisions.get(r.id);if(existing){if(JSON.stringify(existing)!==JSON.stringify(r))throw Error('发现编号相同但内容不同的记录');return existing;}atomicWrite(path.join(this.root,'revisions',r.id+'.json'),JSON.stringify(r));this.addIndex(r);return r;}
   save({entityId,payload,parents,deleted=false,firstEditedAt}){
@@ -48,8 +67,8 @@ class Store{
   schedule(day){
     const entries=[];
     for(const id of this.entities.keys())if(id.startsWith('plan:')){
-      const h=heads(this.all(id).filter(r=>r.effectiveDate<=day));const r=h.filter(r=>!r.deleted).at(-1);
-      if(r)for(const x of occurrence(r.payload,id,day))entries.push({...x,conflict:h.length>1});
+      const h=heads(this.all(id).filter(r=>r.effectiveDate<=day)),selection=selectHeads(h),r=selection.revision;
+      if(r&&!r.deleted)for(const x of occurrence(r.payload,id,day))entries.push({...x,conflict:selection.conflict});
     }
     return entries.sort((a,b)=>(a.time||'99:99').localeCompare(b.time||'99:99')||a.title.localeCompare(b.title,'zh-CN'));
   }

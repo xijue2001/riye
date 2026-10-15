@@ -1,0 +1,23 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {_electron}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const {Store}=require('../core/store.cjs');const {localDate,uuid}=require('../core/model.cjs');
+const project=path.resolve(__dirname,'..'),root=fs.mkdtempSync(path.join(os.tmpdir(),'riye-conflict-ui-'));
+const day=localDate(),intent='note:'+day+':intent',diary='note:'+day+':diary',mixed='note:2026-10-01:intent';
+const seed=new Store(root);const write=(id,text)=>seed.save({entityId:id,parents:[],payload:{blocks:[{id:uuid(),kind:'text',text}]}});
+write(intent,'');write(intent,' \n');write(diary,'自动保留的日记');write(diary,'');for(const text of ['','电脑正文','电脑正文','手机正文'])write(mixed,text);
+let electron;
+(async()=>{
+ electron=await _electron.launch({executablePath:path.join(project,'.runtime/linux/electron'),args:['--no-sandbox','--ozone-platform=headless','--disable-gpu',project],env:{...process.env,RIYE_TEST_MODE:'1',RIYE_DATA_DIR:root},timeout:20000});
+ const p=await electron.firstWindow();await p.setViewportSize({width:1440,height:960});await p.waitForSelector('[data-document]');const errors=[];p.on('pageerror',e=>errors.push(e.message));
+ assert((await p.locator(`[data-document="${diary}"]`).innerText()).includes('自动保留的日记'));assert.equal(await p.locator('#conflict-button').innerText(),'1 处内容需要比较');
+ const current=await p.evaluate(date=>window.daybook.day(date),day);assert.equal(current.intent.conflict,false);assert.equal(current.diary.conflict,false);assert.equal(current.intent.heads.length,1);assert.equal(current.diary.heads.length,1);
+ await p.locator('#conflict-button').click();assert.equal(await p.locator('[data-action=conflict-open]').count(),1);assert((await p.locator('[data-action=conflict-open]').innerText()).includes('2026-10-01'));
+ await p.locator('[data-action=conflict-open]').click();assert.equal(await p.locator('.version').count(),2);assert.deepEqual(new Set(await p.locator('.content-preview').allTextContents()),new Set(['电脑正文','手机正文']));
+ await p.screenshot({path:path.join(project,'.qa-conflict-filter.png')});await p.locator('.version').filter({hasText:'手机正文'}).locator('[data-action=conflict-pick]').click();await p.waitForFunction(()=>document.getElementById('conflict-button').hidden);
+ const final=await p.evaluate(()=>window.daybook.day('2026-10-01'));assert.equal(final.intent.heads.length,1);assert.equal(final.intent.revision.payload.blocks[0].text,'手机正文');assert.equal((await p.evaluate(id=>window.daybook.versions(id),mixed)).length,5);
+ const combineId='note:2026-10-02:intent';await p.evaluate(async id=>{for(const text of ['', '正文甲', '正文甲', '正文乙'])await window.daybook.save({entityId:id,parents:[],payload:{blocks:[{id:crypto.randomUUID(),kind:'text',text}]}});},combineId);
+ await p.locator('#conflict-button').click();await p.locator('[data-action=conflict-open]').click();assert.equal(await p.locator('.version').count(),2);await p.locator('[data-action=conflict-combine]').click();await p.waitForFunction(()=>document.getElementById('conflict-button').hidden);
+ const combined=await p.evaluate(()=>window.daybook.day('2026-10-02'));assert.equal(combined.intent.heads.length,1);for(const text of ['正文甲','正文乙'])assert.equal(combined.intent.revision.payload.blocks.filter(b=>b.text===text).length,1);
+ assert.equal(errors.length,0,errors.join('\n'));console.log('PASS: empty and equal versions hidden, nonempty diary selected, only distinct filled choices shown and complete history preserved.');
+})().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(electron)await electron.close();console.log('Conflict UI fixture:',root);});

@@ -84,6 +84,7 @@ class Sync{
         remoteAssets=new Set((await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4)));
         const photos=[...new Set([...store.revisions.values()].flatMap(assetsOf))].filter(id=>!store.hasAsset(id));
         for(let i=0;i<photos.length;i++){progress('下载照片',i+1,photos.length);const id=photos[i];if(!remoteAssets.has(id))throw Error('远程记录引用的图片还未上传，请稍后重试');store.importAsset(id,await dav.get('assets/'+id+'.bin',50*1024*1024));confirmedAssets.add(id);}
+        store.reconcileConflicts();
       };
       await pull();
       // Freeze one outgoing snapshot so an edit made mid-transfer cannot publish
