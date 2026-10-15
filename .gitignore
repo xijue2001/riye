@@ -1,0 +1,33 @@
+# Dependencies and build tools
+node_modules/
+.runtime/
+dist/
+android/build/
+android/.tools/
+__pycache__/
+*.pyc
+# Signing material and local settings
+.private/
+*.p12
+*.pfx
+*.jks
+*.keystore
+password.txt
+.env
+.env.*
+connection.json
+connection.local.json
+# Personal records, original photos and backups
+data-v1/
+revisions/
+assets/
+backups/
+profile.json
+sync-state.json
+# Temporary QA and editor files
+.qa*
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
