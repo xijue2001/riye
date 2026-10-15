@@ -3,6 +3,7 @@
   "productName": "日页",
   "version": "0.1.0",
   "description": "离线优先的每日打算、日记和计划",
+  "license": "MIT",
   "main": "desktop/main.cjs",
   "private": true,
   "scripts": {

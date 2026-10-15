@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Bundle the same local records and WebDAV protocol for Android",
+  "license": "MIT",
   "dependencies": {
     "@noble/hashes": "2.4.0",
     "buffer": "6.0.3",

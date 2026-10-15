@@ -6,6 +6,10 @@
 
 版本管理见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
+## 许可证
+
+本项目自有源码采用 [MIT License](LICENSE)，允许使用、修改和分发，须保留版权与许可证声明。第三方组件沿用各自许可证：移动适配器见 [mobile/THIRD_PARTY_LICENSES.txt](mobile/THIRD_PARTY_LICENSES.txt)，Windows运行包包含Electron与Chromium的许可证文件。本许可证不替代第三方组件的授权条款。
+
 ## 下载已发布版本
 
 私人仓库：[xijue2001/riye](https://github.com/xijue2001/riye)，需要登录有权限的GitHub账号查看。
