@@ -29,13 +29,14 @@ python3 android/build.py
 
 本仓库已对应现有应用，构建前必须恢复此前保留的 `android/.private/` 安装更新签名。没有签名时构建会停止；只有从未安装过的全新项目首次生成签名才使用 `python3 android/build.py --new-signing-key`。**为同一已安装应用发布更新，必须恢复此前保留的签名和密码，不要另生成一个新签名。** 签名不在源码包里，另存于“日页-Android更新签名备份.zip”；恢复该包内文件到 `android/.private/` 后构建。禁止提交或公开该目录。
 
-输出：`dist/Riye-Android-v0.1.2.apk`。安装包面向 Android 8.0 及以上，target API 36，无本机 CPU 库，适用于 Redmi 的 ARM64 设备。只申请 INTERNET 权限；图片和备份使用系统文档选择器。
+输出：`dist/Riye-Android-v0.1.3.apk`。安装包面向 Android 8.0 及以上，target API 36，无本机 CPU 库，适用于 Redmi 的 ARM64 设备。只申请 INTERNET 权限；图片和备份使用系统文档选择器。
 
 ## 自动验证
 
 ```sh
 npm test
 PLAYWRIGHT_MODULE=<playwright路径> node tests/ui.cjs
+PLAYWRIGHT_MODULE=<playwright路径> node tests/conflict-ui.cjs
 PLAYWRIGHT_MODULE=<playwright路径> node tests/mobile-ui.cjs
 ```
 

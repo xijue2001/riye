@@ -51,6 +51,23 @@ function validateRevision(r) {
 function heads(revisions) { const parentIds=new Set(revisions.flatMap(r=>r.parents));return revisions.filter(r=>!parentIds.has(r.id)).sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.id.localeCompare(b.id)); }
 function assetsOf(r) { return r.payload?.blocks?.filter(b=>b.kind==='image').map(b=>b.assetId)||[]; }
 function hasNoteContent(r) { return !!r&&!r.deleted&&!!r.payload?.blocks?.some(b=>b.kind==='image'||b.text?.trim()||(b.kind==='check'&&b.checked)); }
+// Compare user content, excluding generated editor/lesson IDs and empty blocks.
+function contentKey(r){
+  if(r.deleted)return '';
+  if(r.entityId.startsWith('note:')){
+    if(!hasNoteContent(r))return '';
+    return JSON.stringify(r.payload.blocks.filter(b=>b.kind==='image'||b.text?.trim()||(b.kind==='check'&&b.checked)).map(({id,...b})=>b));
+  }
+  const p={...r.payload};
+  if(p.weekdays){p.weekdays=[...p.weekdays].sort();p.weekContent=Object.fromEntries(p.weekdays.map(d=>[d,p.weekContent[d]]));}
+  if(p.lessons)p.lessons=p.lessons.map(({id,...l})=>l);
+  return JSON.stringify({effectiveDate:r.effectiveDate,payload:p});
+}
+function selectHeads(h){
+  const groups=new Map();for(const r of h){const key=contentKey(r);if(key)groups.set(key,r);}
+  const candidates=[...groups.values()].sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.id.localeCompare(b.id)),revision=candidates.at(-1)||h.filter(r=>r.deleted).at(-1)||h.at(-1)||null;
+  return {revision,conflict:candidates.length>1,conflictHeads:candidates};
+}
 function validateDevice(raw){
   if(raw?.format!=='riye-device'||raw.schema!==1||!/^[a-f0-9-]{36}$/.test(raw.deviceId)||typeof raw.name!=='string'||!raw.name.trim()||raw.name.length>40||/[\x00-\x1f\x7f]/.test(raw.name)||!Number.isFinite(Date.parse(raw.updatedAt)))throw Error('设备名称记录不正确');
   return {format:'riye-device',schema:1,deviceId:raw.deviceId,name:raw.name.trim(),updatedAt:new Date(raw.updatedAt).toISOString()};
@@ -83,4 +100,4 @@ function validateGraph(revisions){
   if(count!==index.size)throw Error('记录版本关系损坏');
   return queue.map(id=>index.get(id));
 }
-module.exports={uuid,localDate,validDate,blocks,plan,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice};
+module.exports={uuid,localDate,validDate,blocks,plan,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice,selectHeads};

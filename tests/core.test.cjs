@@ -39,9 +39,61 @@ test('concurrent same-field edits retain both heads; explicit resolution keeps h
   write(s,'合并结果',note,[a.id,b.id]);assert.equal(s.get(note).heads.length,1);assert.equal(s.all(note).length,4);
 });
 test('separate intent and diary changes do not conflict',()=>{const s=store();write(s,'早上打算','note:2026-10-14:intent');write(s,'晚上日记');assert.equal(s.status().conflicts,0);});
-test('concurrent plan deletions remain available for explicit conflict resolution',()=>{
+test('empty branches including whitespace and unchecked blank items merge and stay hidden after restart',()=>{
+ const s=store();write(s,'',note,[]);s.save({entityId:note,parents:[],payload:{blocks:[block(' \n\t'),{id:uuid(),kind:'check',text:'',checked:false}]}});
+ assert.equal(s.status().conflicts,0);assert.equal(s.get(note).conflictHeads.length,0);assert.equal(s.reconcileConflicts().length,1);
+ const reopened=new Store(s.root);assert.equal(reopened.get(note).heads.length,1);assert.equal(reopened.all(note).length,3);assert.equal(reopened.history()[0].hasDiary,false);assert.equal(reopened.reconcileConflicts().length,0);
+});
+test('a newer empty branch never hides older meaningful content or changes its first edit time',()=>{
+ const s=store(),filled=write(s,'保留有内容的一方',note,[]),empty=write(s,'',note,[]);
+ s.importRevision({...empty,id:uuid(),timestamp:'2099-01-01T00:00:00.000Z',parents:[empty.id]});
+ assert.equal(s.get(note).revision.id,filled.id);assert.equal(s.status().conflicts,0);s.reconcileConflicts();
+ assert.equal(s.get(note).heads.length,1);assert.equal(s.get(note).firstEditedAt,filled.timestamp);assert.equal(s.get(note).revision.deviceId,filled.deviceId);assert.equal(s.get(note).revision.payload.blocks[0].text,'保留有内容的一方');
+});
+test('identical text, checks and images ignore generated block IDs and trailing empty editor blocks',()=>{
+ const s=store(),image=s.addAsset(png),body=[block('同一份正文'),{id:uuid(),kind:'check',text:'读书',checked:true},{id:uuid(),kind:'image',assetId:image.assetId,caption:'原图'}];
+ s.save({entityId:note,parents:[],payload:{blocks:body}});s.save({entityId:note,parents:[],payload:{blocks:[...body.map(b=>({...b,id:uuid()})),block('')]}});
+ assert.equal(s.get(note).conflict,false);assert.equal(s.get(note).conflictHeads.length,1);s.reconcileConflicts();assert.equal(s.get(note).heads.length,1);
+ assert.deepEqual(new Store(s.root).readAsset(image.assetId),png);
+});
+test('real conflicts expose only distinct nonempty choices, with every raw branch kept for resolution',()=>{
+ const s=store();for(const text of ['', '电脑正文','手机正文','电脑正文'])write(s,text,note,[]);
+ const r=s.get(note);assert.equal(r.heads.length,4);assert.equal(r.conflictHeads.length,2);assert.equal(r.conflict,true);assert.equal(s.reconcileConflicts().length,0);
+ assert.deepEqual(new Set(r.conflictHeads.map(x=>x.payload.blocks[0].text)),new Set(['电脑正文','手机正文']));
+ s.save({entityId:note,parents:r.heads.map(x=>x.id),payload:r.conflictHeads[0].payload});assert.equal(s.get(note).heads.length,1);assert.equal(s.status().conflicts,0);assert.equal(s.all(note).length,5);
+});
+test('a photo alone or a checked blank item counts as content, while changed checks and captions require comparison',()=>{
+ const s=store(),asset=s.addAsset(png);write(s,'',note,[]);s.save({entityId:note,parents:[],payload:{blocks:[{id:uuid(),kind:'image',assetId:asset.assetId,caption:''}]}});s.reconcileConflicts();assert.equal(s.get(note).revision.payload.blocks[0].kind,'image');
+ const check='note:2026-10-15:intent';write(s,'',check,[]);s.save({entityId:check,parents:[],payload:{blocks:[{id:uuid(),kind:'check',text:'',checked:true}]}});assert.equal(s.get(check).conflict,false);assert.equal(s.get(check).revision.payload.blocks[0].checked,true);
+ for(const checked of [false,true])s.save({entityId:'note:2026-10-16:intent',parents:[],payload:{blocks:[{id:uuid(),kind:'check',text:'阅读',checked}]}});assert.equal(s.get('note:2026-10-16:intent').conflict,true);
+ s.save({entityId:note,parents:[],payload:{blocks:[{id:uuid(),kind:'image',assetId:asset.assetId,caption:'新说明'}]}});assert.equal(s.get(note).conflict,true);
+});
+test('automatic merges are deterministic across devices and preserve all original revisions in backups',()=>{
+ const a=store(),b=store();write(a,'',note,[]);write(a,'相同内容',note,[]);write(a,'相同内容',note,[]);for(const r of a.revisions.values())b.importRevision(r);
+ const ar=a.reconcileConflicts()[0],br=b.reconcileConflicts()[0];assert.deepEqual(ar,br);a.importRevision(br);assert.equal(a.get(note).heads.length,1);assert.equal(a.revisions.size,4);validateGraph([...a.revisions.values()]);
+ const restored=store();restored.restoreBackup(a.backupBuffer());assert.equal(restored.get(note).conflict,false);assert.equal(restored.get(note).revision.payload.blocks[0].text,'相同内容');for(const r of a.revisions.values())assert(restored.revisions.has(r.id));
+});
+test('more than one hundred empty branches merge in bounded parent batches without losing the graph',()=>{
+ const s=store(),template=write(s,'',note,[]);for(let i=0;i<104;i++)s.importRevision({...template,id:uuid()});
+ s.reconcileConflicts();assert.equal(s.get(note).heads.length,1);assert.equal(s.get(note).conflict,false);assert([...s.revisions.values()].every(r=>r.parents.length<=100));validateGraph([...s.revisions.values()]);
+ const b=store();for(let i=0;i<101;i++)b.importRevision({...template,id:uuid(),deviceId:b.profile.deviceId,timestamp:'2020-01-01T00:00:00.000Z'});b.importRevision({...template,id:uuid(),deviceId:b.profile.deviceId,timestamp:'2021-01-01T00:00:00.000Z',payload:{blocks:[block('首次非空正文')]}});b.reconcileConflicts();assert.equal(b.get(note).firstEditedAt,'2021-01-01T00:00:00.000Z');
+});
+test('identical course plans merge without changing their schedule or effective date; named empty-content plans remain data',()=>{
+ const s=store(),id='plan:'+uuid(),payload={kind:'course',title:'英语课',time:'',content:'',lessons:[{id:uuid(),title:'第一课',date:'2026-10-14',time:'',content:'听力'}]};
+ const first=s.save({entityId:id,parents:[],payload}).revision;s.importRevision({...first,id:uuid(),payload:{...first.payload,lessons:first.payload.lessons.map(l=>({...l,id:uuid()}))}});
+ assert.equal(s.get(id).conflict,false);s.reconcileConflicts();assert.equal(s.get(id).revision.effectiveDate,'2026-10-14');assert.equal(s.schedule('2026-10-14')[0].title,'英语课 · 第一课');
+ const once='plan:'+uuid();s.save({entityId:once,parents:[],payload:{kind:'once',title:'仅名称的安排',date:localDate(),content:'',time:''}});s.save({entityId:once,parents:[],deleted:true,payload:null});assert.equal(s.get(once).conflict,false);assert.equal(s.get(once).revision.payload.title,'仅名称的安排');
+});
+test('synchronized empty and equal branches converge without recurring conflicts, including simultaneous automatic merges',async()=>{
+ const dav=await server();try{const a=store(),b=store(),sa=new Sync(a),sb=new Sync(b);write(a,'',note,[]);write(b,'有内容的正文',note,[]);write(a,'一样的打算','note:2026-10-15:intent',[]);write(b,'一样的打算','note:2026-10-15:intent',[]);
+ await Promise.all([sa.run(dav.config),sb.run(dav.config)]);for(let i=0;i<3;i++){await sa.run(dav.config);await sb.run(dav.config);}
+ for(const s of [a,b]){assert.equal(s.get(note).heads.length,1);assert.equal(s.get(note).revision.payload.blocks[0].text,'有内容的正文');assert.equal(s.status().conflicts,0);assert.equal(s.status().pendingRecords,0);assert.equal(s.get('note:2026-10-15:intent').heads.length,1);}
+ assert.equal(a.get(note).revision.id,b.get(note).revision.id);const size=a.revisions.size;await sa.run(dav.config);await sb.run(dav.config);assert.equal(a.revisions.size,size);
+ }finally{await dav.close();}
+});
+test('concurrent plan deletions are empty and merge without prompting',()=>{
   const s=store(),id='plan:'+uuid(),base=s.save({entityId:id,parents:[],payload:{kind:'once',title:'临时安排',date:localDate(),time:'',content:''}}).revision;
-  s.save({entityId:id,parents:[base.id],deleted:true,payload:null});s.save({entityId:id,parents:[base.id],deleted:true,payload:null});assert.equal(s.plans().length,1);assert.equal(s.plans()[0].conflict,true);
+  s.save({entityId:id,parents:[base.id],deleted:true,payload:null});s.save({entityId:id,parents:[base.id],deleted:true,payload:null});assert.equal(s.plans().length,0);assert.equal(s.get(id).conflict,false);s.reconcileConflicts();assert.equal(s.get(id).heads.length,1);
   s.save({entityId:id,parents:s.get(id).heads.map(r=>r.id),deleted:true,payload:null});assert.equal(s.plans().length,0);assert.equal(s.status().conflicts,0);
 });
 test('weekday-specific plans and dated courses do not shift after a missed lesson',()=>{
@@ -108,9 +160,9 @@ test('day deletion removes both notes, keeps plans and history, and rejects stal
  request.parents.diary=s.get(note).heads.map(r=>r.id);assert.equal(s.deleteDay(request).removed,2);assert.equal(s.history()[0].deleted,true);assert.equal(s.getDay(date).schedule.length,1);assert(s.all(note).some(r=>!r.deleted&&r.payload.blocks[0].text==='日记'));
  const old=s.all(note).find(r=>!r.deleted);s.save({entityId:note,parents:s.get(note).heads.map(r=>r.id),payload:old.payload});assert.equal(s.history()[0].hasDiary,true);
 });
-test('deletions propagate to another device and an offline edit is preserved as a conflict',async()=>{
+test('causal deletions propagate while a concurrent nonempty offline edit is automatically retained',async()=>{
  const dav=await server();try{const a=store(),b=store();write(a,'共同原文');await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);const d=a.getDay('2026-10-14');a.deleteDay({date:d.date,parents:{intent:[],diary:d.diary.heads.map(r=>r.id)}});await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);assert.equal(b.history()[0].deleted,true);
- const original=b.all(note).find(r=>!r.deleted);b.save({entityId:note,parents:[original.id],payload:{blocks:[block('另一台离线的新内容')]}});await new Sync(b).run(dav.config);await new Sync(a).run(dav.config);assert.equal(a.get(note).conflict,true);assert(a.get(note).heads.some(r=>r.deleted));assert(a.get(note).heads.some(r=>r.payload?.blocks[0].text==='另一台离线的新内容'));
+ const original=b.all(note).find(r=>!r.deleted);b.save({entityId:note,parents:[original.id],payload:{blocks:[block('另一台离线的新内容')]}});await new Sync(b).run(dav.config);await new Sync(a).run(dav.config);assert.equal(a.get(note).conflict,false);assert(a.all(note).some(r=>r.deleted));assert.equal(a.get(note).revision.payload.blocks[0].text,'另一台离线的新内容');
  }finally{await dav.close();}
 });
 test('simultaneous sync receives both peers changes and names before reporting complete',async()=>{
