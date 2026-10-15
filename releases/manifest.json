@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "artifacts": [
+    {
+      "version": "0.1.0",
+      "tag": "windows-v0.1.0",
+      "platform": "Windows",
+      "file": "Riye-Windows-x64-v0.1.0.zip",
+      "bytes": 157906979,
+      "sha256": "f3e4c90cab30a77934906844eaa46c27bd841440c8e2ac04055169bf0f87b7e1",
+      "validation": "User initial trial and NAS read/write passed"
+    },
+    {
+      "version": "0.1.0",
+      "tag": "android-v0.1.0",
+      "platform": "Android",
+      "file": "Riye-Android-v0.1.0.apk",
+      "bytes": 1411570,
+      "sha256": "0a1087e1051faa2314b4c0c91bf6ca12b69d33eddb3aa8f594b833e647555c04",
+      "validation": "Trial APK; Android OS and Redmi runtime verification pending"
+    }
+  ]
+}

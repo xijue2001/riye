@@ -1,6 +1,7 @@
 """Reproducible standalone Android build, using official SDK tools."""
 from pathlib import Path
 import hashlib
+import argparse
 import json
 import os
 import secrets
@@ -10,6 +11,11 @@ import zipfile
 
 ROOT=Path(__file__).resolve().parent
 PROJECT=ROOT.parent
+VERSION=json.loads((PROJECT/"package.json").read_text())["version"]
+parser=argparse.ArgumentParser()
+parser.add_argument("--new-signing-key",action="store_true",help="Create the FIRST identity for a new app; never use for an existing installation")
+options=parser.parse_args()
+subprocess.run(["python3",str(PROJECT/"scripts/versions.py"),"check"],check=True)
 BUILD=ROOT/'build'
 BUILD.mkdir(exist_ok=True)
 TOOLS=ROOT/'.tools'
@@ -46,13 +52,14 @@ run([zipalign,'-f','-p','4',unsigned,BUILD/'aligned.apk'])
 private=ROOT/'.private';private.mkdir(mode=0o700,exist_ok=True)
 key=private/'riye-update.p12';password=private/'password.txt'
 if not key.exists():
+    if not options.new_signing_key:raise RuntimeError('请先恢复现有Android更新签名；新建项目首次签名才可使用 --new-signing-key')
     password.write_text(secrets.token_urlsafe(32));password.chmod(0o600)
     env={**os.environ,'RIYE_SIGNING_PASSWORD':password.read_text()}
     run(['keytool','-genkeypair','-keystore',key,'-storetype','PKCS12','-alias','riye','-keyalg','RSA','-keysize','3072','-validity','10000','-dname','CN=Riye Personal App, O=Riye, C=CN','-storepass:env','RIYE_SIGNING_PASSWORD','-keypass:env','RIYE_SIGNING_PASSWORD'],env=env)
     key.chmod(0o600)
 env={**os.environ,'RIYE_SIGNING_PASSWORD':password.read_text()}
 DIST=PROJECT/'dist';DIST.mkdir(exist_ok=True)
-apk=DIST/'Riye-Android-v0.1.0.apk'
+apk=DIST/('Riye-Android-v'+VERSION+'.apk')
 run(['java','-jar',signer,'sign','--ks',key,'--ks-key-alias','riye','--ks-pass','env:RIYE_SIGNING_PASSWORD','--key-pass','env:RIYE_SIGNING_PASSWORD','--out',apk,BUILD/'aligned.apk'],env=env)
 verification=subprocess.run(['java','-jar',str(signer),'verify','--verbose','--print-certs',str(apk)],check=True,capture_output=True,text=True)
 (BUILD/'signature-verification.txt').write_text(verification.stdout)

@@ -31,3 +31,14 @@ sync-state.json
 Thumbs.db
 .vscode/
 .idea/
+
+# Packaged binaries and exported archives
+*.apk
+*.zip
+*.bundle
+*.exe
+*.dll
+*.bin
+*.jar
+*.key
+*.pem

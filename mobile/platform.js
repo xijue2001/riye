@@ -1,4 +1,5 @@
 import {Buffer} from 'buffer';
+import packageInfo from '../package.json';
 import {disk} from './shims/fs.js';
 import storeModule from '../core/store.cjs';
 import davModule from '../core/dav.cjs';
@@ -37,7 +38,7 @@ async function recoverMedia(){if(imageToken||recovery)return recovery||false;rec
  await nativeCall('ack-media',{token:media.token});changed();return !!count;
 })();try{return await recovery;}finally{recovery=null;}}
 window.__riyeRecoverMedia=()=>recoverMedia().then(changed=>{if(changed)window.dispatchEvent(new Event('riye-reload'));}).catch(()=>{});
-async function init(){if(!config)config=normalizeConfig({...await nativeCall('load-config'),auto:false});await recoverMedia();return{config:publicConfig(),status:store.status(),version:'0.1.0 Android'};}
+async function init(){if(!config)config=normalizeConfig({...await nativeCall('load-config'),auto:false});await recoverMedia();return{config:publicConfig(),status:store.status(),version:packageInfo.version+' Android'};}
 async function restore(source){
  if(sync.running)throw Error('请等同步结束后再恢复备份');
  const result=await nativeCall('open-restore',{name:source||null});if(!result)return null;

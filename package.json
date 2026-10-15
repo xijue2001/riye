@@ -5,6 +5,12 @@
   "description": "离线优先的每日打算、日记和计划",
   "main": "desktop/main.cjs",
   "private": true,
-  "scripts": {"test":"node --test tests/*.test.cjs", "start":"electron ."},
-  "engines": {"node": ">=22"}
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "start": "electron .",
+    "version:check": "python3 scripts/versions.py check"
+  },
+  "engines": {
+    "node": ">=22"
+  }
 }

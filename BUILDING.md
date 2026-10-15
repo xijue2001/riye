@@ -27,7 +27,7 @@ python3 android/build.py
 
 安卓本地文件保存在应用私有 `files/data-v1`；WebView 只加载包内资源。网络请求使用原生 OkHttp，密码使用 AndroidKeyStore AES-GCM。本地数据与 Windows 的记录/原图格式一致。
 
-首次构建会在 `android/.private/` 生成安装更新签名。**为同一已安装应用发布更新，必须恢复此前保留的签名和密码，不要另生成一个新签名。** 签名不在源码包里，另存于“日页-Android更新签名备份.zip”；恢复该包内文件到 `android/.private/` 后构建。禁止提交或公开该目录。
+本仓库已对应现有应用，构建前必须恢复此前保留的 `android/.private/` 安装更新签名。没有签名时构建会停止；只有从未安装过的全新项目首次生成签名才使用 `python3 android/build.py --new-signing-key`。**为同一已安装应用发布更新，必须恢复此前保留的签名和密码，不要另生成一个新签名。** 签名不在源码包里，另存于“日页-Android更新签名备份.zip”；恢复该包内文件到 `android/.private/` 后构建。禁止提交或公开该目录。
 
 输出：`dist/Riye-Android-v0.1.0.apk`。安装包面向 Android 8.0 及以上，target API 36，无本机 CPU 库，适用于 Redmi 的 ARM64 设备。只申请 INTERNET 权限；图片和备份使用系统文档选择器。
 

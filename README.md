@@ -4,6 +4,8 @@
 
 安卓安装与操作见 [ANDROID.md](ANDROID.md)，开发与构建见 [BUILDING.md](BUILDING.md)。Windows 0.1.0 已收到用户试用及 NAS 读写成功反馈；安卓使用同一套记录格式和现有同步目录。
 
+版本管理见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## Windows 开始使用
 
 1. 下载 Windows x64 压缩包，完整解压到一个固定位置。

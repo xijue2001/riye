@@ -64,7 +64,7 @@ try:
   time.sleep(2)
  else:raise RuntimeError('Emulator did not boot within smoke-test limit')
  print('Android 16 booted; installing release APK.',flush=True)
- for package in [PROJECT/'dist/Riye-Android-v0.1.0.apk',BUILD/'qa.apk']:
+ for package in [PROJECT/('dist/Riye-Android-v'+json.loads((PROJECT/'package.json').read_text())['version']+'.apk'),BUILD/'qa.apk']:
   adb_run('install','-r',str(package),check=True,timeout=90)
  adb_run('shell','input','keyevent','82',timeout=20)
  result=adb_run('shell','am','instrument','-w','dev.riye.qa/dev.riye.qa.Smoke',capture_output=True,text=True,timeout=300)

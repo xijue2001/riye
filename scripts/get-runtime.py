@@ -1,11 +1,12 @@
 """Download official Electron binaries, checking the release SHA-256 list."""
 import concurrent.futures
 import hashlib
+import json
 from pathlib import Path
 import sys
 import urllib.request
 
-VERSION = "44.7.2"
+VERSION = json.loads((Path(__file__).resolve().parent.parent / "runtime.json").read_text())["electron"]
 BASE = f"https://github.com/electron/electron/releases/download/v{VERSION}/"
 DEST = Path(sys.argv[1] if len(sys.argv) > 1 else ".runtime")
 DEST.mkdir(parents=True, exist_ok=True)

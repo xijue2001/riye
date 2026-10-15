@@ -8,7 +8,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 VERSION = json.loads((ROOT / 'package.json').read_text())['version']
-RUNTIME_VERSION = '44.7.2'
+RUNTIME_VERSION = json.loads((ROOT / 'runtime.json').read_text())['electron']
 DIST = ROOT / 'dist'
 DIST.mkdir(exist_ok=True)
 parser=argparse.ArgumentParser()
@@ -56,11 +56,11 @@ if not options.source_only:
     
 source_zip = DIST / f'Riye-Source-v{VERSION}.zip'
 with zipfile.ZipFile(source_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=5) as archive:
-    for directory in ['core', 'desktop', 'renderer', 'tests', 'scripts', 'mobile', 'android']:
+    for directory in ['core', 'desktop', 'renderer', 'tests', 'scripts', 'mobile', 'android', '.github', 'docs', 'releases']:
         for file in sorted((ROOT / directory).rglob('*')):
             if file.is_file() and not any(part in {'node_modules','.tools','.private','build','__pycache__'} for part in file.relative_to(ROOT).parts):
                 archive.writestr('riye-source/' + file.relative_to(ROOT).as_posix(), file.read_bytes())
-    for name in ['package.json', 'README.md', 'ANDROID.md', 'BUILDING.md', 'THIRD_PARTY.md']:
+    for name in ['package.json', 'runtime.json', 'README.md', 'ANDROID.md', 'BUILDING.md', 'THIRD_PARTY.md', 'VERSIONING.md', 'CHANGELOG.md', '.gitignore', '.gitattributes']:
         archive.writestr('riye-source/' + name, (ROOT / name).read_bytes())
 artifacts=[source_zip] if options.source_only else [windows_zip,source_zip]
 for artifact in artifacts:
