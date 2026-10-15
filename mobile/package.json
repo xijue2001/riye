@@ -1,6 +1,6 @@
 {
   "name": "riye-mobile-adapter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Bundle the same local records and WebDAV protocol for Android",
   "license": "MIT",

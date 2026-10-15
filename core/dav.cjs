@@ -2,7 +2,9 @@
 const {uuid,validateRevision,validateGraph,assetsOf,validateDevice}=require('./model.cjs');
 const crypto=require('node:crypto');
 function normalizeConfig(raw){
-  const out={primary:String(raw.primary||'').trim(),secondary:String(raw.secondary||'').trim(),directory:String(raw.directory||'').trim(),username:String(raw.username||''),password:String(raw.password||''),auto:raw.auto!==false};
+  const syncIntervalMinutes=raw.syncIntervalMinutes===undefined?5:Number(raw.syncIntervalMinutes);
+  if(![5,10,15,30,60,120,240,360,480,720,1440].includes(syncIntervalMinutes))throw Error('请选择 5 分钟至 24 小时内的自动同步间隔');
+  const out={primary:String(raw.primary||'').trim(),secondary:String(raw.secondary||'').trim(),directory:String(raw.directory||'').trim(),username:String(raw.username||''),password:String(raw.password||''),auto:raw.auto!==false,syncIntervalMinutes};
   for(const key of ['primary','secondary'])if(out[key]){let u;try{u=new URL(out[key]);}catch{throw Error('请填写完整服务地址，例如 http://100.x.x.x:6086');}if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error('地址只支持 HTTP/HTTPS，账号密码请分开填写');out[key]=u.href.replace(/\/$/,'');}
   if(out.primary||out.secondary){const seg=out.directory.replace(/^\/+|\/+$/g,'').split('/');if(!seg.length||seg.some(s=>!s||s==='.'||s==='..')||out.directory.includes('\\')||out.directory.length>500)throw Error('请填写应用专用目录，不能使用根目录');}
   return out;
