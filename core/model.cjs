@@ -50,6 +50,11 @@ function validateRevision(r) {
 }
 function heads(revisions) { const parentIds=new Set(revisions.flatMap(r=>r.parents));return revisions.filter(r=>!parentIds.has(r.id)).sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.id.localeCompare(b.id)); }
 function assetsOf(r) { return r.payload?.blocks?.filter(b=>b.kind==='image').map(b=>b.assetId)||[]; }
+function hasNoteContent(r) { return !!r&&!r.deleted&&!!r.payload?.blocks?.some(b=>b.kind==='image'||b.text?.trim()||(b.kind==='check'&&b.checked)); }
+function validateDevice(raw){
+  if(raw?.format!=='riye-device'||raw.schema!==1||!/^[a-f0-9-]{36}$/.test(raw.deviceId)||typeof raw.name!=='string'||!raw.name.trim()||raw.name.length>40||/[\x00-\x1f\x7f]/.test(raw.name)||!Number.isFinite(Date.parse(raw.updatedAt)))throw Error('设备名称记录不正确');
+  return {format:'riye-device',schema:1,deviceId:raw.deviceId,name:raw.name.trim(),updatedAt:new Date(raw.updatedAt).toISOString()};
+}
 function occurrence(p,entityId,day) {
   if(p.kind==='once'&&p.date===day)return [{id:entityId+'@'+day,entityId,title:p.title,content:p.content,time:p.time,date:day,kind:p.kind}];
   if(p.kind==='weekly'&&day>=p.startDate&&(!p.endDate||day<=p.endDate)){
@@ -76,5 +81,6 @@ function validateGraph(revisions){
   const queue=[...degree].filter(x=>x[1]===0).map(x=>x[0]);let count=0;
   for(let i=0;i<queue.length;i++){count++;for(const child of children.get(queue[i])||[]){degree.set(child,degree.get(child)-1);if(degree.get(child)===0)queue.push(child);}}
   if(count!==index.size)throw Error('记录版本关系损坏');
+  return queue.map(id=>index.get(id));
 }
-module.exports={uuid,localDate,validDate,blocks,plan,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph};
+module.exports={uuid,localDate,validDate,blocks,plan,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice};

@@ -32,6 +32,8 @@ app.whenReady().then(async()=>{
   handle('init',()=>({config:publicConfig(),status:store.status(),version:app.getVersion()}));
   handle('day',day=>store.getDay(day));handle('history',()=>store.history());handle('plans',()=>store.plans());handle('versions',id=>store.all(id).sort((a,b)=>b.timestamp.localeCompare(a.timestamp)));
   handle('save',data=>{const result=store.save(data);changed();return result;});
+  handle('day-delete',data=>{const result=store.deleteDay(data);changed();return result;});
+  handle('device-name',name=>{const result=store.setDeviceName(name);changed();return result;});
   handle('image-add',data=>{const result=store.addAsset(data);changed();return result;});
   handle('image-pick',async()=>{const r=await dialog.showOpenDialog(win,{title:'加入照片或截图',properties:['openFile','multiSelections'],filters:[{name:'图片',extensions:['png','jpg','jpeg','webp','gif','bmp']}]});if(r.canceled)return[];return r.filePaths.map(file=>{if(fs.statSync(file).size>50*1024*1024)throw Error('单张图片请小于 50 MB');return store.addAsset(fs.readFileSync(file));});});
   handle('sync',()=>sync.run({...config}));

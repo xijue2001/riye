@@ -43,6 +43,8 @@ if not options.source_only:
                 if file.is_file():
                     output.writestr(PREFIX + 'resources/app/' + file.relative_to(ROOT).as_posix(), file.read_bytes())
         output.writestr(PREFIX + 'resources/app/package.json', (ROOT / 'package.json').read_bytes())
+        output.writestr(PREFIX + 'resources/app/LICENSE', (ROOT / 'LICENSE').read_bytes())
+        output.writestr(PREFIX + 'Riye-MIT-LICENSE.txt', (ROOT / 'LICENSE').read_bytes())
         output.writestr(PREFIX + '使用说明.md', (ROOT / 'README.md').read_bytes())
     
     with zipfile.ZipFile(runtime_zip) as original, zipfile.ZipFile(windows_zip) as packaged:
@@ -60,7 +62,7 @@ with zipfile.ZipFile(source_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=5) as 
         for file in sorted((ROOT / directory).rglob('*')):
             if file.is_file() and not any(part in {'node_modules','.tools','.private','build','__pycache__'} for part in file.relative_to(ROOT).parts):
                 archive.writestr('riye-source/' + file.relative_to(ROOT).as_posix(), file.read_bytes())
-    for name in ['package.json', 'runtime.json', 'README.md', 'ANDROID.md', 'BUILDING.md', 'THIRD_PARTY.md', 'VERSIONING.md', 'CHANGELOG.md', '.gitignore', '.gitattributes']:
+    for name in ['package.json', 'runtime.json', 'README.md', 'ANDROID.md', 'BUILDING.md', 'THIRD_PARTY.md', 'VERSIONING.md', 'CHANGELOG.md', 'LICENSE', '.gitignore', '.gitattributes']:
         archive.writestr('riye-source/' + name, (ROOT / name).read_bytes())
 artifacts=[source_zip] if options.source_only else [windows_zip,source_zip]
 for artifact in artifacts:

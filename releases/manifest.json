@@ -18,6 +18,24 @@
       "bytes": 1411570,
       "sha256": "0a1087e1051faa2314b4c0c91bf6ca12b69d33eddb3aa8f594b833e647555c04",
       "validation": "Trial APK; Android OS and Redmi runtime verification pending"
+    },
+    {
+      "version": "0.1.1",
+      "tag": "v0.1.1",
+      "platform": "Windows",
+      "file": "Riye-Windows-x64-v0.1.1.zip",
+      "bytes": 157917585,
+      "sha256": "82660c6dd3ad88dcfbfbf706130b82d8b23455df8cfcdfe10a48f4026b899777",
+      "validation": "26 core tests and Electron UI passed; Windows/NAS user verification pending"
+    },
+    {
+      "version": "0.1.1",
+      "tag": "v0.1.1",
+      "platform": "Android",
+      "file": "Riye-Android-v0.1.1.apk",
+      "bytes": 1415735,
+      "sha256": "766d2a138c5e1e7a3acfee5c6e5cf2fc87c19d79a61d1fdfb69d8d8d6c655099",
+      "validation": "26 core tests, mobile UI, desktop interoperability, JVM backup and original signing identity verified; Android OS/Redmi trial pending"
     }
   ]
 }

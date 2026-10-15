@@ -21,8 +21,8 @@ globalThis.fetch=async(url,options={})=>{
  return {status:result.status,body,headers:new Headers(result.headers||{})};
 };
 let config=null;
-const store=new Store('/data');
-function snapshot(){return{manifest:{format:'riye-backup',schema:1,exportedAt:new Date().toISOString(),datasetId:store.profile.datasetId},revisionIds:[...store.revisions.keys()],assetIds:store.assetIds()};}
+const store=new Store('/data',{deviceName:'手机'});
+function snapshot(){return{manifest:{format:'riye-backup',schema:1,exportedAt:new Date().toISOString(),datasetId:store.profile.datasetId,devices:store.deviceList()},revisionIds:[...store.revisions.keys()],assetIds:store.assetIds()};}
 store.exportBackup=file=>{const missing=store.status().missingPhotos;if(missing)throw Error('还有 '+missing+' 张图片尚未下载，请先同步');disk('backup',{path:file,...snapshot()});return file;};
 store.autoBackup=()=>{if(!store.revisions.size)return;try{disk('auto-backup',snapshot());}catch(e){store.warnings=['自动备份暂未完成：'+e.message];}};
 const notify=data=>listeners.forEach(fn=>fn(data));
@@ -49,6 +49,7 @@ window.daybook={
  platform:'android',assetUrl:id=>'https://appassets.androidplatform.net/data-assets/'+id,
  init,day:async day=>store.getDay(day),history:async()=>store.history(),plans:async()=>store.plans(),versions:async id=>store.all(id).sort((a,b)=>b.timestamp.localeCompare(a.timestamp)),
  save:async data=>{const r=store.save(data);changed();return r;},addImage:async bytes=>{const r=store.addAsset(bytes);changed();return r;},pickImages:async context=>{const r=await nativeCall('pick-images',context);imageToken=r?.token||null;changed();return r?.images||[];},ackImages:async()=>{if(imageToken)await nativeCall('ack-media',{token:imageToken});imageToken=null;},
+ deleteDay:async data=>{const r=store.deleteDay(data);changed();return r;},setDeviceName:async name=>{const r=store.setDeviceName(name);changed();return r;},
  sync:()=>sync.run({...config}),saveConfig:async raw=>{if(sync.running)throw Error('请等待同步结束后再修改连接');const next=normalizeConfig({...raw,password:raw.password===''&&raw.keepPassword!==false?config.password:raw.password,auto:false});await nativeCall('save-config',next);config=next;store.updateRemote({lastError:null});changed();return publicConfig();},
  testConnection:raw=>new davModule.Dav({...raw,password:raw.password||config.password,auto:false}).test(),
  exportBackup:()=>{if(store.status().missingPhotos)throw Error('还有图片尚未下载，请先同步');return nativeCall('export-backup',snapshot());},restoreBackup:()=>restore(),backups:()=>Promise.resolve(disk('list-backups')),restoreNamedBackup:name=>restore(name),

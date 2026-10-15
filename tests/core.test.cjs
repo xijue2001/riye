@@ -16,12 +16,13 @@ async function server(){
       if(!dirs.has(p)){res.writeHead(404);res.end();return;}
       let xml='<?xml version="1.0"?><D:multistatus xmlns:D="DAV:"><D:response><D:href>'+p+'</D:href></D:response>';
       if(req.headers.depth!=='0')for(const f of files.keys())if(f.startsWith(p)&&!f.slice(p.length).includes('/'))xml+='<D:response><D:href>'+f+'</D:href><D:propstat><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>';
+      if(control.afterList&&req.headers.depth==='1'&&p.endsWith('/revisions/'))await control.afterList();
       res.writeHead(207,{'Content-Type':'application/xml'});res.end(xml+'</D:multistatus>');return;
     }
     if(req.method==='PUT'){
       if(control.failAssetOnce&&p.includes('/assets/')){control.failAssetOnce=false;res.writeHead(503);res.end();return;}
       if(files.has(p)&&req.headers['if-none-match']==='*'){res.writeHead(412);res.end();return;}
-      const chunks=[];for await(const x of req)chunks.push(x);let data=Buffer.concat(chunks);if(control.partialOnce&&p.includes('/'+control.partialOnce+'/')){control.partialOnce=null;files.set(p,data.subarray(0,7));res.writeHead(503);res.end();return;}if(control.truncateSuccessOnce&&p.includes('/assets/')){control.truncateSuccessOnce=false;data=data.subarray(0,7);}files.set(p,data);res.writeHead(201);res.end();return;
+      const chunks=[];for await(const x of req)chunks.push(x);let data=Buffer.concat(chunks);if(control.partialOnce&&p.includes('/'+control.partialOnce+'/')){control.partialOnce=null;files.set(p,data.subarray(0,7));res.writeHead(503);res.end();return;}if(control.truncateSuccessOnce&&p.includes('/assets/')){control.truncateSuccessOnce=false;data=data.subarray(0,7);}files.set(p,data);if(control.afterPut)await control.afterPut(p,data);res.writeHead(201);res.end();return;
     }
     if(req.method==='GET'){if(!files.has(p)){res.writeHead(404);res.end();return;}res.end(files.get(p));return;}
     if(req.method==='DELETE'){files.delete(p);res.writeHead(204);res.end();return;}
@@ -85,3 +86,53 @@ test('a server returning success for a truncated photo is detected and retried',
 test('retry never overwrites a valid remote revision with different content',async()=>{const dav=await server();try{
  const a=store(),r=write(a,'本地原文');await new Sync(a).run(dav.config);const file=[...dav.files.keys()].find(n=>n.endsWith(r.id+'.json'));const changed=JSON.parse(dav.files.get(file));changed.payload.blocks[0].text='不同的有效远程内容';dav.files.set(file,Buffer.from(JSON.stringify(changed)));a.updateRemote({revisions:[]});await assert.rejects(new Sync(a).run(dav.config),/校验失败/);assert.equal(JSON.parse(dav.files.get(file)).payload.blocks[0].text,'不同的有效远程内容');assert.equal(a.get(note).revision.payload.blocks[0].text,'本地原文');
 }finally{await dav.close();}});
+
+test('calendar status excludes empty drafts and distinguishes intentions, text and photo diaries',()=>{
+ const s=store(),date='2026-10-15',intent='note:'+date+':intent',diary='note:'+date+':diary';write(s,'  ',intent);write(s,'',diary);
+ assert.equal(s.history()[0].hasIntent,false);assert.equal(s.history()[0].hasDiary,false);assert.equal(s.get(diary).firstEditedAt,null);
+ write(s,'今天学英语',intent);assert.equal(s.history()[0].hasIntent,true);assert.equal(s.history()[0].hasDiary,false);
+ const a=s.addAsset(png);s.save({entityId:diary,parents:s.get(diary).heads.map(r=>r.id),payload:{blocks:[{id:uuid(),kind:'image',assetId:a.assetId,caption:''}]}});assert.equal(s.history()[0].hasDiary,true);
+});
+test('first meaningful diary edit time survives later edits, restart and backup restoration',()=>{
+ const s=store(),started=new Date(Date.now()-15000).toISOString();write(s,'');s.save({entityId:note,parents:s.get(note).heads.map(r=>r.id),firstEditedAt:started,payload:{blocks:[block('第一句话')]}});
+ write(s,'继续补充');assert.equal(s.get(note).firstEditedAt,started);assert.equal(new Store(s.root).get(note).firstEditedAt,started);
+ const restored=store();restored.restoreBackup(s.backupBuffer());assert.equal(restored.get(note).firstEditedAt,started);
+});
+test('device names persist locally and backup preserves the source label without adopting its device identity',()=>{
+ const s=store();s.setDeviceName(' 公司电脑 ');const id=s.profile.deviceId;assert.equal(new Store(s.root).status().deviceName,'公司电脑');write(s,'工作记录');
+ const other=store(),ownId=other.profile.deviceId;other.restoreBackup(s.backupBuffer());assert.equal(other.status().devices[id],'公司电脑');assert.equal(other.profile.deviceId,ownId);assert.notEqual(id,ownId);assert.throws(()=>s.setDeviceName('坏\n名称'),/设备名称/);
+});
+test('day deletion removes both notes, keeps plans and history, and rejects stale confirmation',()=>{
+ const s=store(),date='2026-10-14',intent='note:'+date+':intent';write(s,'打算',intent);write(s,'日记');s.save({entityId:'plan:'+uuid(),parents:[],payload:{kind:'once',date,title:'固定安排',time:'',content:'内容'}});
+ const data=s.getDay(date),request={date,parents:{intent:data.intent.heads.map(r=>r.id),diary:data.diary.heads.map(r=>r.id)}};write(s,'新修改');assert.throws(()=>s.deleteDay(request),/刚刚变化/);assert.equal(s.get(intent).revision.deleted,false);
+ request.parents.diary=s.get(note).heads.map(r=>r.id);assert.equal(s.deleteDay(request).removed,2);assert.equal(s.history()[0].deleted,true);assert.equal(s.getDay(date).schedule.length,1);assert(s.all(note).some(r=>!r.deleted&&r.payload.blocks[0].text==='日记'));
+ const old=s.all(note).find(r=>!r.deleted);s.save({entityId:note,parents:s.get(note).heads.map(r=>r.id),payload:old.payload});assert.equal(s.history()[0].hasDiary,true);
+});
+test('deletions propagate to another device and an offline edit is preserved as a conflict',async()=>{
+ const dav=await server();try{const a=store(),b=store();write(a,'共同原文');await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);const d=a.getDay('2026-10-14');a.deleteDay({date:d.date,parents:{intent:[],diary:d.diary.heads.map(r=>r.id)}});await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);assert.equal(b.history()[0].deleted,true);
+ const original=b.all(note).find(r=>!r.deleted);b.save({entityId:note,parents:[original.id],payload:{blocks:[block('另一台离线的新内容')]}});await new Sync(b).run(dav.config);await new Sync(a).run(dav.config);assert.equal(a.get(note).conflict,true);assert(a.get(note).heads.some(r=>r.deleted));assert(a.get(note).heads.some(r=>r.payload?.blocks[0].text==='另一台离线的新内容'));
+ }finally{await dav.close();}
+});
+test('simultaneous sync receives both peers changes and names before reporting complete',async()=>{
+ const dav=await server();try{const a=store(),b=store();a.setDeviceName('公司电脑');b.setDeviceName('手机');write(a,'电脑打算','note:2026-10-15:intent');write(b,'手机日记','note:2026-10-15:diary');
+ let count=0,release;const barrier=new Promise(r=>release=r);dav.control.afterList=async()=>{if(++count<=2){if(count===2)release();await barrier;}};
+ const results=await Promise.all([new Sync(a).run(dav.config),new Sync(b).run(dav.config)]);for(const s of [a,b]){assert.equal(s.get('note:2026-10-15:intent').revision.payload.blocks[0].text,'电脑打算');assert.equal(s.get('note:2026-10-15:diary').revision.payload.blocks[0].text,'手机日记');assert.equal(s.status().devices[a.profile.deviceId],'公司电脑');assert.equal(s.status().devices[b.profile.deviceId],'手机');}for(const result of results){assert.equal(result.pendingDownloads,0);assert.equal(result.pendingRecords,0);assert.equal(result.pendingDevice,false);}
+ }finally{await dav.close();}
+});
+test('restarted uploads publish causal parents before children even if filenames sort backwards',async()=>{
+ const dav=await server();try{const s=store(),base=write(s,'父版本'),child=write(s,'子版本');const raws=[{...base,id:'ffffffff-ffff-ffff-ffff-ffffffffffff'},{...child,id:'00000000-0000-0000-0000-000000000000',parents:['ffffffff-ffff-ffff-ffff-ffffffffffff']}];const x=store();for(const r of raws)x.importRevision(r);const reopened=new Store(x.root);assert.equal([...reopened.revisions.keys()][0],raws[1].id);
+ dav.control.afterPut=async(p,data)=>{if(p.includes('/revisions/')){const r=JSON.parse(data);for(const id of r.parents)assert(dav.files.has(p.slice(0,p.lastIndexOf('/')+1)+id+'.json'),'parent must reach server before child');}};
+ await new Sync(reopened).run(dav.config);
+ }finally{await dav.close();}
+});
+test('a photo and child note added mid-sync remain queued together until their next upload',async()=>{
+ const dav=await server();try{const s=store(),photo=s.addAsset(png);s.save({entityId:note,parents:[],payload:{blocks:[{id:uuid(),kind:'image',assetId:photo.assetId,caption:''}]}});let added=false,later;
+ dav.control.afterPut=async p=>{if(!added&&p.includes('/assets/')){added=true;const second=s.addAsset(Buffer.concat([png,Buffer.from('new image')]));later=s.save({entityId:note,parents:s.get(note).heads.map(r=>r.id),payload:{blocks:[{id:uuid(),kind:'image',assetId:second.assetId,caption:'同步中新加入'}]}}).revision;}};
+ const result=await new Sync(s).run(dav.config);assert.equal(result.pendingRecords,1);assert.equal(result.pendingPhotos,1);assert.equal(result.lastSync,null);assert(![...dav.files.keys()].some(p=>p.endsWith(later.id+'.json')));await new Sync(s).run(dav.config);const peer=store();await new Sync(peer).run(dav.config);assert.equal(peer.get(note).revision.payload.blocks[0].caption,'同步中新加入');assert.equal(peer.status().missingPhotos,0);
+ }finally{await dav.close();}
+});
+test('continuous peer writes leave an explicit download count rather than false sync success',async()=>{
+ const dav=await server();try{const s=store(),peer=store();let count=0;dav.control.afterList=async()=>{const r=write(peer,'持续输入 '+(++count),'note:2026-10-16:intent');const path='/'+encodeURIComponent('日页 测试')+'/revisions/'+r.id+'.json';dav.files.set(path,Buffer.from(JSON.stringify(r)));};
+ const result=await new Sync(s).run(dav.config);assert(result.pendingDownloads>0);assert.equal(result.lastSync,null);assert([...dav.files.keys()].filter(p=>p.includes('/revisions/')).length>s.revisions.size);
+ }finally{await dav.close();}
+});

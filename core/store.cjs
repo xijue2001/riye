@@ -1,13 +1,16 @@
 'use strict';
 const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');
-const {uuid,localDate,validDate,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph}=require('./model.cjs');
+const {uuid,localDate,validDate,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice}=require('./model.cjs');
 const {makeZip,readZip}=require('./zip.cjs');
 function atomicWrite(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const tmp=file+'.'+uuid()+'.tmp';try{const fd=fs.openSync(tmp,'wx');try{fs.writeFileSync(fd,data);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(tmp,file);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}}
 class Store{
-  constructor(root){
-    this.root=root;this.revisions=new Map();this.entities=new Map();this.warnings=[];
-    for(const dir of ['revisions','assets','backups'])fs.mkdirSync(path.join(root,dir),{recursive:true});
+  constructor(root,{deviceName='电脑'}={}){
+    this.root=root;this.revisions=new Map();this.entities=new Map();this.warnings=[];this.knownDevices=new Map();
+    for(const dir of ['revisions','assets','backups','devices'])fs.mkdirSync(path.join(root,dir),{recursive:true});
     const meta=path.join(root,'profile.json');if(fs.existsSync(meta))this.profile=JSON.parse(fs.readFileSync(meta,'utf8'));else{this.profile={deviceId:uuid(),datasetId:null};atomicWrite(meta,JSON.stringify(this.profile));}
+    if(!this.profile.deviceName){this.profile.deviceName=deviceName;this.profile.deviceNameUpdatedAt=new Date().toISOString();atomicWrite(meta,JSON.stringify(this.profile));}
+    for(const name of fs.readdirSync(path.join(root,'devices')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)))try{const d=validateDevice(JSON.parse(fs.readFileSync(path.join(root,'devices',name),'utf8')));if(name!==d.deviceId+'.json')throw Error();this.knownDevices.set(d.deviceId,d);}catch{this.warnings.push('一条设备名称无法读取');}
+    this.importDevice(this.deviceInfo());
     for(const name of fs.readdirSync(path.join(root,'revisions')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n))){
       try{const r=validateRevision(JSON.parse(fs.readFileSync(path.join(root,'revisions',name),'utf8')));if(name!==r.id+'.json')throw Error();this.addIndex(r);}catch{this.warnings.push('一条本地记录无法读取：'+name);}
     }
@@ -15,18 +18,31 @@ class Store{
     const state=path.join(root,'sync-state.json');if(fs.existsSync(state)){try{this.remote=JSON.parse(fs.readFileSync(state,'utf8'));}catch{}}
   }
   addIndex(r){this.revisions.set(r.id,r);if(!this.entities.has(r.entityId))this.entities.set(r.entityId,new Set());this.entities.get(r.entityId).add(r.id);}
+  deviceInfo(){return validateDevice({format:'riye-device',schema:1,deviceId:this.profile.deviceId,name:this.profile.deviceName,updatedAt:this.profile.deviceNameUpdatedAt});}
+  deviceList(){return [...this.knownDevices.values()];}
+  importDevice(raw){const d=validateDevice(raw),old=this.knownDevices.get(d.deviceId);if(old&&old.updatedAt>d.updatedAt)return old;if(old&&JSON.stringify(old)===JSON.stringify(d))return old;atomicWrite(path.join(this.root,'devices',d.deviceId+'.json'),JSON.stringify(d));this.knownDevices.set(d.deviceId,d);return d;}
+  setDeviceName(name){const d=validateDevice({...this.deviceInfo(),name,updatedAt:new Date(Math.max(Date.now(),Date.parse(this.profile.deviceNameUpdatedAt)+1)).toISOString()});this.profile.deviceName=d.name;this.profile.deviceNameUpdatedAt=d.updatedAt;atomicWrite(path.join(this.root,'profile.json'),JSON.stringify(this.profile));this.importDevice(d);return this.status();}
   setDataset(id){if(!/^[a-f0-9-]{36}$/.test(id))throw Error('同步目录标识不正确');if(this.profile.datasetId&&this.profile.datasetId!==id)throw Error('此同步目录属于另一份数据，请检查 WebDAV 地址和目录');this.profile.datasetId=id;atomicWrite(path.join(this.root,'profile.json'),JSON.stringify(this.profile));}
   all(entityId){return [...(this.entities.get(entityId)||[])].map(id=>this.revisions.get(id));}
-  get(entityId){const h=heads(this.all(entityId));const visible=h.filter(r=>!r.deleted);return{entityId,heads:h,revision:visible.at(-1)||h.at(-1)||null,conflict:h.length>1};}
+  get(entityId){const all=this.all(entityId),h=heads(all);const visible=h.filter(r=>!r.deleted);const first=all.filter(hasNoteContent).sort((a,b)=>a.timestamp.localeCompare(b.timestamp))[0];return{entityId,heads:h,revision:visible.at(-1)||h.at(-1)||null,conflict:h.length>1,firstEditedAt:first?.timestamp||null};}
   getDay(day){if(!validDate(day))throw Error('日期不正确');return{date:day,intent:this.get('note:'+day+':intent'),diary:this.get('note:'+day+':diary'),schedule:this.schedule(day)};}
   importRevision(raw){const r=validateRevision(raw),existing=this.revisions.get(r.id);if(existing){if(JSON.stringify(existing)!==JSON.stringify(r))throw Error('发现编号相同但内容不同的记录');return existing;}atomicWrite(path.join(this.root,'revisions',r.id+'.json'),JSON.stringify(r));this.addIndex(r);return r;}
-  save({entityId,payload,parents,deleted=false}){
+  save({entityId,payload,parents,deleted=false,firstEditedAt}){
     if(!Array.isArray(parents)||parents.some(id=>this.revisions.get(id)?.entityId!==entityId))throw Error('保存基于的版本不正确，请重新打开记录');
     this.autoBackup();
     let effectiveDate=localDate();
     if(entityId.startsWith('plan:')&&!this.entities.has(entityId)&&!deleted){if(payload.kind==='once')effectiveDate=payload.date;if(payload.kind==='weekly')effectiveDate=payload.startDate;if(payload.kind==='course')effectiveDate=payload.lessons.map(l=>l.date).sort()[0];}
-    const r=validateRevision({schema:1,id:uuid(),deviceId:this.profile.deviceId,entityId,parents,timestamp:new Date().toISOString(),effectiveDate,deleted,payload});
+    let timestamp=new Date().toISOString();
+    if(entityId.endsWith(':diary')&&!deleted&&hasNoteContent({payload})&&!this.all(entityId).some(hasNoteContent)&&firstEditedAt){if(!Number.isFinite(Date.parse(firstEditedAt))||Date.parse(firstEditedAt)>Date.now()+5000)throw Error('首次编辑时间不正确');timestamp=new Date(firstEditedAt).toISOString();}
+    const r=validateRevision({schema:1,id:uuid(),deviceId:this.profile.deviceId,entityId,parents,timestamp,effectiveDate,deleted,payload});
     this.importRevision(r);return{revision:r,record:this.get(entityId),status:this.status()};
+  }
+  deleteDay({date,parents}){
+    if(!validDate(date))throw Error('日期不正确');
+    const records=['intent','diary'].map(kind=>({kind,record:this.get('note:'+date+':'+kind)}));
+    for(const {kind,record} of records){const expected=parents?.[kind];if(!Array.isArray(expected)||expected.length>100||JSON.stringify([...expected].sort())!==JSON.stringify(record.heads.map(r=>r.id).sort()))throw Error('这一天的记录刚刚变化，请重新查看后再确认删除');}
+    let removed=0;for(const {kind,record} of records)if(record.heads.some(r=>!r.deleted)){this.save({entityId:record.entityId,parents:parents[kind],deleted:true,payload:null});removed++;}
+    return {removed,status:this.status()};
   }
   plans(){return [...this.entities.keys()].filter(id=>id.startsWith('plan:')).map(id=>this.get(id)).filter(x=>x.conflict||x.heads.some(r=>!r.deleted));}
   schedule(day){
@@ -37,17 +53,17 @@ class Store{
     }
     return entries.sort((a,b)=>(a.time||'99:99').localeCompare(b.time||'99:99')||a.title.localeCompare(b.title,'zh-CN'));
   }
-  history(){return [...new Set([...this.entities.keys()].filter(x=>x.startsWith('note:')).map(x=>x.split(':')[1]))].sort().reverse().map(day=>{const d=this.getDay(day);const text=[d.intent,d.diary].map(x=>x.revision?.payload?.blocks?.filter(b=>b.kind!=='image').map(b=>b.text).join(' ')||'').join(' ');return {date:day,preview:text.slice(0,180),text,photos:[d.intent,d.diary].reduce((n,x)=>n+(x.revision?.payload?.blocks?.filter(b=>b.kind==='image').length||0),0),conflict:d.intent.conflict||d.diary.conflict,deleted:[d.intent,d.diary].every(x=>!x.revision||x.revision.deleted)};});}
+  history(){return [...new Set([...this.entities.keys()].filter(x=>x.startsWith('note:')).map(x=>x.split(':')[1]))].sort().reverse().map(day=>{const d={intent:this.get('note:'+day+':intent'),diary:this.get('note:'+day+':diary')};const active=[d.intent,d.diary].filter(x=>x.revision&&!x.revision.deleted);const text=active.map(x=>x.revision.payload.blocks.filter(b=>b.kind!=='image').map(b=>b.text).join(' ')).join(' ');return {date:day,preview:text.slice(0,180),text,hasIntent:hasNoteContent(d.intent.revision),hasDiary:hasNoteContent(d.diary.revision),firstEditedAt:d.diary.firstEditedAt,photos:active.reduce((n,x)=>n+x.revision.payload.blocks.filter(b=>b.kind==='image').length,0),conflict:d.intent.conflict||d.diary.conflict,deleted:active.length===0};});}
   assetIds(){return fs.readdirSync(path.join(this.root,'assets')).filter(x=>/^[a-f0-9]{64}\.bin$/.test(x)).map(x=>x.slice(0,-4));}
   addAsset(input){const buf=Buffer.from(input);if(buf.length>50*1024*1024)throw Error('单张图片请小于 50 MB');const mime=sniffImage(buf),id=crypto.createHash('sha256').update(buf).digest('hex');if(!this.hasAsset(id))atomicWrite(path.join(this.root,'assets',id+'.bin'),buf);return{assetId:id,mime,size:buf.length};}
   hasAsset(id){return /^[a-f0-9]{64}$/.test(id)&&fs.existsSync(path.join(this.root,'assets',id+'.bin'));}
   readAsset(id){if(!this.hasAsset(id))throw Error('图片尚未下载');return fs.readFileSync(path.join(this.root,'assets',id+'.bin'));}
   importAsset(id,buf){if(!/^[a-f0-9]{64}$/.test(id)||crypto.createHash('sha256').update(buf).digest('hex')!==id)throw Error('图片校验失败，请重试同步');return this.addAsset(buf);}
-  status(){const r=new Set(this.remote.revisions||[]),a=new Set(this.remote.assets||[]);return{pendingRecords:[...this.revisions.keys()].filter(x=>!r.has(x)).length,pendingPhotos:this.assetIds().filter(x=>!a.has(x)).length,missingPhotos:[...new Set([...this.revisions.values()].flatMap(assetsOf))].filter(x=>!this.hasAsset(x)).length,conflicts:[...this.entities.keys()].filter(x=>this.get(x).conflict).length,lastSync:this.remote.lastSync,lastError:this.remote.lastError,warnings:this.warnings,root:this.root};}
+  status(){const r=new Set(this.remote.revisions||[]),a=new Set(this.remote.assets||[]);return{pendingRecords:[...this.revisions.keys()].filter(x=>!r.has(x)).length,pendingPhotos:this.assetIds().filter(x=>!a.has(x)).length,pendingDownloads:this.remote.pendingDownloads||0,pendingDevice:this.remote.deviceVersion!==this.profile.deviceNameUpdatedAt,deviceId:this.profile.deviceId,deviceName:this.profile.deviceName,devices:Object.fromEntries(this.deviceList().map(d=>[d.deviceId,d.name])),missingPhotos:[...new Set([...this.revisions.values()].flatMap(assetsOf))].filter(x=>!this.hasAsset(x)).length,conflicts:[...this.entities.keys()].filter(x=>this.get(x).conflict).length,lastSync:this.remote.lastSync,lastError:this.remote.lastError,warnings:this.warnings,root:this.root};}
   updateRemote(data){this.remote={...this.remote,...data};atomicWrite(path.join(this.root,'sync-state.json'),JSON.stringify(this.remote));}
   backupBuffer(){
     const missing=[...new Set([...this.revisions.values()].flatMap(assetsOf))].filter(x=>!this.hasAsset(x));if(missing.length)throw Error('还有 '+missing.length+' 张图片尚未下载，请同步后再导出完整备份');
-    const entries=[['manifest.json',Buffer.from(JSON.stringify({format:'riye-backup',schema:1,exportedAt:new Date().toISOString(),datasetId:this.profile.datasetId}))]];
+    const entries=[['manifest.json',Buffer.from(JSON.stringify({format:'riye-backup',schema:1,exportedAt:new Date().toISOString(),datasetId:this.profile.datasetId,devices:this.deviceList()}))]];
     for(const r of this.revisions.values())entries.push(['revisions/'+r.id+'.json',Buffer.from(JSON.stringify(r))]);
     for(const id of this.assetIds())entries.push(['assets/'+id+'.bin',this.readAsset(id)]);
     return makeZip(entries);
@@ -64,6 +80,7 @@ class Store{
   restoreEntries(entries){
     let manifest;try{manifest=JSON.parse(entries.get('manifest.json').toString());}catch{throw Error('缺少日页备份说明');}
     if(manifest.format!=='riye-backup'||manifest.schema!==1)throw Error('不是日页支持的备份');
+    if(manifest.devices!==undefined&&(!Array.isArray(manifest.devices)||manifest.devices.length>10000))throw Error('备份中的设备信息不正确');const devices=(manifest.devices||[]).map(validateDevice);
     const revisions=[],assets=[];
     for(const [name,data]of entries){if(name==='manifest.json')continue;
       if(/^revisions\/[a-f0-9-]{36}\.json$/.test(name)){const r=validateRevision(JSON.parse(data));if(name!=='revisions/'+r.id+'.json')throw Error('备份记录编号不匹配');revisions.push(r);}
@@ -78,7 +95,7 @@ class Store{
     let before=null;if(this.revisions.size){before=path.join(this.root,'backups','before-restore-'+Date.now()+'.zip');this.exportBackup(before);}
     const byEntity=new Map();for(const r of revisions){if(!byEntity.has(r.entityId))byEntity.set(r.entityId,[]);byEntity.get(r.entityId).push(r);}
     const current=new Map([...byEntity.keys()].map(id=>[id,this.get(id).heads.map(r=>r.id)]));
-    for(const [id,name]of assets)this.importAsset(id,entries.get(name));for(const r of revisions)this.importRevision(r);
+    for(const [id,name]of assets)this.importAsset(id,entries.get(name));for(const r of revisions)this.importRevision(r);for(const d of devices)if(d.deviceId!==this.profile.deviceId)this.importDevice(d);
     for(const [entityId,list]of byEntity){const h=heads(list),parents=[...new Set([...current.get(entityId),...h.map(r=>r.id)])];for(const r of h)this.save({entityId,parents,payload:r.payload,deleted:r.deleted});}
     return {records:byEntity.size,photos:assets.length,before};
   }

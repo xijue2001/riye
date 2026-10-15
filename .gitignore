@@ -24,6 +24,7 @@ assets/
 backups/
 profile.json
 sync-state.json
+devices/
 # Temporary QA and editor files
 .qa*
 *.log
