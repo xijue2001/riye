@@ -1,0 +1,48 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {_electron}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const {Store}=require('../core/store.cjs');
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'riye-ui-')),appRoot=path.resolve(__dirname,'..');
+const executablePath=process.env.ELECTRON_BINARY||path.join(appRoot,'.runtime/linux/electron');
+let electron;
+const localDate=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+const prev=day=>{const d=new Date(day+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+async function start(){electron=await _electron.launch({executablePath,args:['--no-sandbox','--ozone-platform=headless','--disable-gpu',appRoot],env:{...process.env,RIYE_TEST_MODE:'1',RIYE_DATA_DIR:root},timeout:20000});const page=await electron.firstWindow();await page.setViewportSize({width:1440,height:1000});await page.waitForSelector('[data-document]');return page;}
+(async()=>{
+  let p=await start();const errors=[];p.on('pageerror',e=>errors.push(e.message));const day=localDate(),intent='note:'+day+':intent',diary='note:'+day+':diary';
+  await p.locator(`[data-document="${intent}"] [contenteditable]`).first().fill('联系供应商\n整理工作资料');
+  await p.locator(`[data-action="insert-check"][data-doc="${intent}"]`).click();
+  await p.locator(`[data-document="${intent}"] .block:has(input[type=checkbox]) [contenteditable]`).fill('英语听力练习');
+  await p.locator(`[data-document="${intent}"] input[type=checkbox]`).check();
+  await p.locator('[data-page=history]').click();
+  const savedIntent=await p.evaluate(id=>window.daybook.day(id.split(':')[1]),intent);
+  assert.equal(savedIntent.intent.revision.payload.blocks.filter(b=>b.kind==='text').map(b=>b.text).join(''),'联系供应商\n整理工作资料');
+  await p.locator('[data-page=today]').click();await p.waitForSelector(`[data-document="${diary}"]`);
+  await p.locator(`[data-document="${diary}"] [contenteditable]`).first().fill('今天终于把生活安排放到了一起。');
+  await p.evaluate(async()=>{
+    const el=document.querySelector('[data-document$=diary] [contenteditable]');el.focus();
+    const canvas=document.createElement('canvas');canvas.width=560;canvas.height=220;const c=canvas.getContext('2d');c.fillStyle='#e7ecdf';c.fillRect(0,0,560,220);c.fillStyle='#b7c7a8';c.fillRect(25,30,160,160);c.fillStyle='#57715b';c.font='28px sans-serif';c.fillText('A quiet afternoon',220,110);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));const transfer=new DataTransfer();transfer.items.add(new File([blob],'afternoon.png',{type:'image/png'}));el.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,clipboardData:transfer}));
+  });
+  await p.waitForSelector(`[data-document="${diary}"] img`);await p.waitForFunction(()=>document.querySelector('[data-document$=diary] img').complete&&document.querySelector('[data-document$=diary] img').naturalWidth===560);
+  await p.locator(`[data-document="${diary}"] .caption-input`).fill('留下一张照片');
+  await p.locator('#main-date').fill(prev(day));await p.locator('#main-date').dispatchEvent('change');
+  await p.waitForSelector(`[data-document="note:${prev(day)}:intent"]`);await p.locator(`[data-document="note:${prev(day)}:intent"] [contenteditable]`).fill('完成了八件事\n还要联系售后\n还要整理账单');
+  await p.locator('[data-action=day-today]').click();await p.waitForSelector(`[data-document="${intent}"]`);
+  await p.waitForFunction(()=>document.getElementById('reference-copy').textContent.includes('还要整理账单'));
+  await p.evaluate(()=>{const el=document.querySelector('#reference-copy p'),text=el.firstChild;const range=document.createRange();const start=text.textContent.indexOf('还要联系售后');range.setStart(text,start);range.setEnd(text,text.textContent.length);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));});
+  await p.locator('[data-action=carry-selection]').click();assert((await p.locator(`[data-document="${intent}"]`).innerText()).includes('还要联系售后'));
+  await p.locator('[data-page=plans]').click();await p.locator('[data-action=plan-new]').first().click();
+  await p.locator('#plan-form input[name=title]').fill('每周力量训练');await p.locator('#plan-form select[name=kind]').selectOption('weekly');
+  await p.locator('#plan-form input[name=startDate]').fill('2026-10-01');await p.locator('#plan-form input[name=weekday][value="1"]').check();await p.locator('#plan-form input[name=weekday][value="3"]').check();await p.locator('[data-week-content="1"]').fill('椅子深蹲 2组');await p.locator('[data-week-content="3"]').fill('俯卧撑与划船');await p.locator('#plan-form button[type=submit]').click();await p.waitForSelector('.plan-card');
+  await p.locator('[data-action=plan-new]').first().click();await p.locator('#plan-form input[name=title]').fill('英语学习');await p.locator('#plan-form select[name=kind]').selectOption('course');await p.locator('[data-lesson] [data-field=title]').fill('第2课');await p.locator('[data-lesson] [data-field=date]').fill(prev(day));await p.locator('[data-lesson] [data-field=content]').fill('请求别人再说一遍');await p.locator('[data-action=lesson-add]').click();await p.locator('[data-lesson]').nth(1).locator('[data-field=title]').fill('第3课');await p.locator('[data-lesson]').nth(1).locator('[data-field=date]').fill(day);await p.locator('[data-lesson]').nth(1).locator('[data-field=content]').fill('询问时间和安排');await p.locator('#plan-form button[type=submit]').click();await p.waitForFunction(()=>document.querySelectorAll('.plan-card').length===2);
+  await p.locator('[data-page=today]').click();await p.waitForSelector(`[data-document="${diary}"]`);assert((await p.locator('.schedule-grid').innerText()).includes('第3课'));assert(!(await p.locator('.schedule-grid').innerText()).includes('第2课'));
+  await p.screenshot({path:path.join(appRoot,'.qa-today.png'),fullPage:true});
+  const disk=new Store(root);assert.equal(disk.get(intent).revision.payload.blocks.find(b=>b.kind==='check').checked,true);assert.equal(disk.get('note:'+prev(day)+':intent').revision.payload.blocks[0].text,'完成了八件事\n还要联系售后\n还要整理账单');assert.equal(disk.assetIds().length,1);
+  await p.locator('[data-page=history]').click();await p.locator('#history-search').fill('联系售后');assert.equal(await p.locator('.history-row').count(),2);
+  await p.locator('[data-page=settings]').click();await p.waitForSelector('#connection-form');await p.screenshot({path:path.join(appRoot,'.qa-settings.png'),fullPage:true});
+  const exportFile=path.join(root,'export.zip');await electron.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},exportFile);await p.locator('[data-action=export-backup]').click();await p.waitForFunction(()=>document.getElementById('toast').textContent==='完整备份已导出。');assert(fs.existsSync(exportFile));
+  await p.locator('[data-page=today]').click();await p.waitForSelector(`[data-document="${diary}"]`);await p.locator(`[data-document="${diary}"] [contenteditable]`).last().fill('退出前最后一条文字。');
+  const closed=electron.waitForEvent('close');await electron.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].close());await closed;electron=null;
+  const reopened=new Store(root);assert(reopened.get(diary).revision.payload.blocks.some(b=>b.text==='退出前最后一条文字。'));p=await start();assert((await p.locator(`[data-document="${diary}"]`).innerText()).includes('退出前最后一条文字。'));assert.equal(errors.length,0,errors.join('\n'));console.log('PASS: native desktop editing, checkboxes, pasted images, carryover, weekly plans, dated courses, search, ZIP export, save-on-close and restart.');
+})().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(electron)await electron.close();console.log('UI fixture directory:',root);});

@@ -59,12 +59,15 @@ class Store{
     try{this.exportBackup(file);const names=fs.readdirSync(path.join(this.root,'backups')).filter(n=>/^daily-.*\.zip$/.test(n)).sort().reverse();for(const n of names.slice(7))fs.unlinkSync(path.join(this.root,'backups',n));}catch(e){this.warnings=['自动备份暂未完成：'+e.message];}
   }
   restoreBackup(buf){
-    const entries=readZip(buf);let manifest;try{manifest=JSON.parse(entries.get('manifest.json').toString());}catch{throw Error('缺少日页备份说明');}
+    return this.restoreEntries(readZip(buf));
+  }
+  restoreEntries(entries){
+    let manifest;try{manifest=JSON.parse(entries.get('manifest.json').toString());}catch{throw Error('缺少日页备份说明');}
     if(manifest.format!=='riye-backup'||manifest.schema!==1)throw Error('不是日页支持的备份');
     const revisions=[],assets=[];
     for(const [name,data]of entries){if(name==='manifest.json')continue;
       if(/^revisions\/[a-f0-9-]{36}\.json$/.test(name)){const r=validateRevision(JSON.parse(data));if(name!=='revisions/'+r.id+'.json')throw Error('备份记录编号不匹配');revisions.push(r);}
-      else if(/^assets\/[a-f0-9]{64}\.bin$/.test(name)){const id=name.slice(7,-4);if(crypto.createHash('sha256').update(data).digest('hex')!==id)throw Error('备份图片校验失败');sniffImage(data);assets.push([id,data]);}
+      else if(/^assets\/[a-f0-9]{64}\.bin$/.test(name)){const id=name.slice(7,-4);if(crypto.createHash('sha256').update(data).digest('hex')!==id)throw Error('备份图片校验失败');sniffImage(data);assets.push([id,name]);}
       else throw Error('备份包含不支持的文件');
     }
     const ids=new Set(revisions.map(r=>r.id)),assetIds=new Set(assets.map(x=>x[0]));
@@ -75,7 +78,7 @@ class Store{
     let before=null;if(this.revisions.size){before=path.join(this.root,'backups','before-restore-'+Date.now()+'.zip');this.exportBackup(before);}
     const byEntity=new Map();for(const r of revisions){if(!byEntity.has(r.entityId))byEntity.set(r.entityId,[]);byEntity.get(r.entityId).push(r);}
     const current=new Map([...byEntity.keys()].map(id=>[id,this.get(id).heads.map(r=>r.id)]));
-    for(const [id,data]of assets)this.importAsset(id,data);for(const r of revisions)this.importRevision(r);
+    for(const [id,name]of assets)this.importAsset(id,entries.get(name));for(const r of revisions)this.importRevision(r);
     for(const [entityId,list]of byEntity){const h=heads(list),parents=[...new Set([...current.get(entityId),...h.map(r=>r.id)])];for(const r of h)this.save({entityId,parents,payload:r.payload,deleted:r.deleted});}
     return {records:byEntity.size,photos:assets.length,before};
   }

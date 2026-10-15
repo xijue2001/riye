@@ -44,7 +44,7 @@ class Dav{
   }
   async list(dir){const url=this.root+dir+'/';const r=await this.request('PROPFIND',url,{headers:{Depth:'1','Content-Type':'application/xml'},body:'<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>',limit:32*1024*1024});return listing(r.body.toString('utf8'),url);}
   async get(file,max=128*1024*1024){return(await this.request('GET',this.root+file,{limit:max})).body;}
-  async put(file,data){return this.request('PUT',this.root+file,{body:data,headers:{'Content-Type':'application/octet-stream','If-None-Match':'*'},accept:[200,201,204,412]});}
+  async put(file,data,replace=false){return this.request('PUT',this.root+file,{body:data,headers:{'Content-Type':'application/octet-stream',...(!replace?{'If-None-Match':'*'}:{})},accept:[200,201,204,412]});}
   async dataset(store){
     let r=await this.request('GET',this.root+'info.json',{accept:[200,404],limit:10000});
     if(r.status===404){const info={format:'riye-sync',schema:1,datasetId:store.profile.datasetId||uuid()};await this.put('info.json',JSON.stringify(info));r=await this.request('GET',this.root+'info.json',{limit:10000});}
@@ -67,10 +67,30 @@ class Sync{
       const remoteAssets=new Set((await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4)));
       const referenced=[...new Set([...store.revisions.values()].flatMap(assetsOf))];const photos=referenced.filter(id=>!store.hasAsset(id));
       for(let i=0;i<photos.length;i++){progress('下载照片',i+1,photos.length);if(!remoteAssets.has(photos[i]))throw Error('远程记录引用的图片还未上传，请稍后重试');store.importAsset(photos[i],await dav.get('assets/'+photos[i]+'.bin',50*1024*1024));}
-      const uploads=store.assetIds().filter(id=>!remoteAssets.has(id));
-      for(let i=0;i<uploads.length;i++){progress('上传照片',i+1,uploads.length);const id=uploads[i],data=store.readAsset(id);const result=await dav.put('assets/'+id+'.bin',data);if(result.status===412){const old=await dav.get('assets/'+id+'.bin',50*1024*1024);if(crypto.createHash('sha256').update(old).digest('hex')!==id)throw Error('远程照片校验失败');}remoteAssets.add(id);}
-      const remoteSet=new Set(remoteIds),revisions=[...store.revisions.values()].filter(r=>!remoteSet.has(r.id));
-      for(let i=0;i<revisions.length;i++){progress('上传文字',i+1,revisions.length);const r=revisions[i],result=await dav.put('revisions/'+r.id+'.json',JSON.stringify(r));const verified=validateRevision(JSON.parse(await dav.get('revisions/'+r.id+'.json',4*1024*1024)));if(JSON.stringify(r)!==JSON.stringify(verified))throw Error('远程记录写入校验失败');remoteSet.add(r.id);}
+      // A name left by a failed PUT is not proof of a completed transfer.
+      const previouslyConfirmedAssets=new Set(store.remote.assets||[]);
+      const uploads=store.assetIds().filter(id=>!remoteAssets.has(id)||!previouslyConfirmedAssets.has(id));
+      for(let i=0;i<uploads.length;i++){
+        progress('上传照片',i+1,uploads.length);const id=uploads[i],file='assets/'+id+'.bin',data=store.readAsset(id);const result=await dav.put(file,data);
+        let actual=await dav.get(file,50*1024*1024);
+        if(crypto.createHash('sha256').update(actual).digest('hex')!==id){
+          if(result.status!==412)throw Error('远程照片写入校验失败，请重新同步');
+          // Only repair a damaged file under the exact hash of our intact original.
+          await dav.put(file,data,true);actual=await dav.get(file,50*1024*1024);
+          if(crypto.createHash('sha256').update(actual).digest('hex')!==id)throw Error('远程照片写入校验失败，请重新同步');
+        }remoteAssets.add(id);
+      }
+      const remoteSet=new Set(remoteIds),previouslyConfirmedRecords=new Set(store.remote.revisions||[]),revisions=[...store.revisions.values()].filter(r=>!remoteSet.has(r.id)||!previouslyConfirmedRecords.has(r.id));
+      for(let i=0;i<revisions.length;i++){
+        progress('上传文字',i+1,revisions.length);const r=revisions[i],file='revisions/'+r.id+'.json',data=JSON.stringify(r),result=await dav.put(file,data);let verified;
+        const actual=await dav.get(file,4*1024*1024);
+        try{verified=validateRevision(JSON.parse(actual));}catch(e){
+          if(result.status!==412)throw e;
+          // A valid differing revision is never replaced; a truncated JSON PUT can be retried.
+          await dav.put(file,data,true);verified=validateRevision(JSON.parse(await dav.get(file,4*1024*1024)));
+        }
+        if(data!==JSON.stringify(verified))throw Error('远程记录写入校验失败');remoteSet.add(r.id);
+      }
       // Listings confirm all files exist; edits made during this run remain queued.
       const confirmedRecords=(await dav.list('revisions')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5));
       const confirmedAssets=(await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4));

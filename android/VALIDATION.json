@@ -1,0 +1,13 @@
+{
+  "version": "0.1.0",
+  "platform": "Android",
+  "target_sdk": 36,
+  "min_sdk": 26,
+  "core_tests_passed": 17,
+  "desktop_ui": "passed",
+  "mobile_ui_and_windows_0_1_0_protocol": "passed",
+  "java_private_files_and_cross_platform_backup": "passed",
+  "apk_signature": "v2/v3 verified",
+  "android_os_runtime": "not verified: emulator boot did not complete",
+  "redmi_hyperos_runtime": "requires device trial"
+}
