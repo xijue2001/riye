@@ -36,6 +36,24 @@
       "bytes": 1415735,
       "sha256": "766d2a138c5e1e7a3acfee5c6e5cf2fc87c19d79a61d1fdfb69d8d8d6c655099",
       "validation": "26 core tests, mobile UI, desktop interoperability, JVM backup and original signing identity verified; Android OS/Redmi trial pending"
+    },
+    {
+      "version": "0.1.2",
+      "tag": "v0.1.2",
+      "platform": "Windows",
+      "file": "Riye-Windows-x64-v0.1.2.zip",
+      "bytes": 157917926,
+      "sha256": "d5d29f1e4b469782c663e543490666b5f5c5ac0887a4d213cb968520fe319ec5",
+      "validation": "30 core/scheduler tests, desktop/mobile UI, original Windows interoperability and package integrity passed; Windows/Redmi/NAS real-device trial pending"
+    },
+    {
+      "version": "0.1.2",
+      "tag": "v0.1.2",
+      "platform": "Android",
+      "file": "Riye-Android-v0.1.2.apk",
+      "bytes": 1415735,
+      "sha256": "3d1ec6980ca20c86efd46405d9e8b0e3c58eade0f5133f417253e8944503b842",
+      "validation": "30 core/scheduler tests, desktop/mobile UI, original Windows interoperability and package integrity passed; Windows/Redmi/NAS real-device trial pending"
     }
   ]
 }

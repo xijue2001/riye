@@ -2,12 +2,13 @@
 const {app,BrowserWindow,ipcMain,protocol,dialog,shell,safeStorage,session}=require('electron');
 const fs=require('node:fs');const path=require('node:path');
 const {Store,atomicWrite}=require('../core/store.cjs');const {Sync,Dav,normalizeConfig}=require('../core/dav.cjs');const {sniffImage,localDate}=require('../core/model.cjs');
+const {AutoSync}=require('./auto-sync.cjs');
 app.setName('日页');
 protocol.registerSchemesAsPrivileged([{scheme:'daybook',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 const testing=process.env.RIYE_TEST_MODE==='1'&&!!process.env.RIYE_DATA_DIR;
 if(testing)app.setPath('userData',process.env.RIYE_DATA_DIR+'-electron');
 if(!testing&&!app.requestSingleInstanceLock()){app.quit();}else{
-let win,store,sync,config,closeAllowed=false,timer,saveTimer;
+let win,store,sync,config,autoSync,closeAllowed=false;
 const notify=data=>{if(win&&!win.isDestroyed())win.webContents.send('sync-status',data);};
 function readConfig(){
   const file=path.join(store.root,'connection.json');let value={primary:'',secondary:'',directory:'/sata2-2/riye',username:'',password:'',auto:true};
@@ -15,11 +16,10 @@ function readConfig(){
   return normalizeConfig(value);
 }
 function publicConfig(){return {...config,password:'',hasPassword:!!config.password};}
-function kickSync(){if(config.auto&&(config.primary||config.secondary)&&!sync.running)sync.run({...config}).catch(()=>{});}
-function changed(){notify({...store.status(),running:!!sync.running});if(config.auto){clearTimeout(saveTimer);saveTimer=setTimeout(kickSync,1500);}}
+function changed(){notify({...store.status(),running:!!sync.running});}
 function handle(name,fn){ipcMain.handle(name,async(event,...args)=>{if(!event.senderFrame?.url.startsWith('daybook://app/'))return{ok:false,error:'页面来源不正确'};try{return{ok:true,value:await fn(...args)};}catch(e){return{ok:false,error:e.message};}});}
 app.whenReady().then(async()=>{
-  store=new Store(process.env.RIYE_DATA_DIR||path.join(app.getPath('userData'),'data-v1'));config=readConfig();sync=new Sync(store,notify);
+  store=new Store(process.env.RIYE_DATA_DIR||path.join(app.getPath('userData'),'data-v1'));config=readConfig();sync=new Sync(store,notify);autoSync=new AutoSync(sync);
   protocol.handle('daybook',request=>{
     const u=new URL(request.url);
     if(u.hostname==='asset')try{const id=u.pathname.slice(1),bytes=store.readAsset(id);return new Response(bytes,{headers:{'Content-Type':sniffImage(bytes),'Cache-Control':'private, max-age=86400'}});}catch{return new Response('图片尚未下载',{status:404});}
@@ -42,7 +42,7 @@ app.whenReady().then(async()=>{
     const next=normalizeConfig({...raw,password:raw.password===''&&raw.keepPassword!==false?config.password:raw.password});
     const file={...next};delete file.password;
     if(next.password){if(!safeStorage.isEncryptionAvailable())throw Error('系统密码保护暂时不可用，无法安全保存同步密码');file.passwordEncrypted=safeStorage.encryptString(next.password).toString('base64');}
-    atomicWrite(path.join(store.root,'connection.json'),JSON.stringify(file));config=next;store.updateRemote({lastError:null});changed();return publicConfig();
+    atomicWrite(path.join(store.root,'connection.json'),JSON.stringify(file));config=next;autoSync.configure(config);store.updateRemote({lastError:null});changed();return publicConfig();
   });
   handle('connection-test',raw=>new Dav({...raw,password:raw.password||config.password}).test());
   handle('backup-export',async()=>{const r=await dialog.showSaveDialog(win,{title:'导出完整备份',defaultPath:'日页备份-'+localDate()+'.zip',filters:[{name:'完整备份',extensions:['zip']}]});if(r.canceled)return null;return store.exportBackup(r.filePath);});
@@ -58,8 +58,8 @@ app.whenReady().then(async()=>{
   win=new BrowserWindow({width:1440,height:960,minWidth:1000,minHeight:720,title:'日页',backgroundColor:'#f6f7f3',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
   win.on('close',event=>{if(!closeAllowed){event.preventDefault();win.webContents.send('before-close');}});
-  await win.loadURL('daybook://app/index.html');store.autoBackup();timer=setInterval(kickSync,30000);setTimeout(kickSync,1800);
+  await win.loadURL('daybook://app/index.html');store.autoBackup();autoSync.configure(config);
 });
 app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus();}});
-app.on('window-all-closed',()=>{clearInterval(timer);clearTimeout(saveTimer);app.quit();});
+app.on('window-all-closed',()=>{autoSync?.stop();app.quit();});
 }
