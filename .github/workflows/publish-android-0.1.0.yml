@@ -1,0 +1,26 @@
+name: Publish verified Android 0.1.0 draft
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-android-0.1.0.yml
+      - scripts/publish_android_010.py
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-android-0.1.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'xijue2001/riye' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verify existing assets and publish the original draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_android_010.py
