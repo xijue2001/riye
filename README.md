@@ -6,6 +6,17 @@
 
 版本管理见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
+## 下载已发布版本
+
+私人仓库：[xijue2001/riye](https://github.com/xijue2001/riye)，需要登录有权限的GitHub账号查看。
+
+| 平台 | 版本与下载 | 状态 |
+|---|---|---|
+| Windows 10/11 x64 | [windows-v0.1.0](https://github.com/xijue2001/riye/releases/tag/windows-v0.1.0) | 已收到用户初步试用与NAS读写成功反馈 |
+| Android | [android-v0.1.0](https://github.com/xijue2001/riye/releases/tag/android-v0.1.0) | Pre-release，待Redmi实机验证 |
+
+每个Release都附安装包、使用说明和SHA256SUMS.txt。历史安装包与标签保持原样；main包含后续源码和构建管理改进，不能当作Windows旧包的精确源码快照。
+
 ## Windows 开始使用
 
 1. 下载 Windows x64 压缩包，完整解压到一个固定位置。

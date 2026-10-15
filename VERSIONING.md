@@ -1,6 +1,6 @@
 # 版本管理
 
-默认使用私人仓库 riye。main保存经过检查的当前源码；新功能在feature分支修改，通过测试后合并。安装包放在GitHub Releases，不提交到源码历史。
+私人仓库：[xijue2001/riye](https://github.com/xijue2001/riye)。main保存经过检查的当前源码；新功能在feature分支修改，通过测试后合并。安装包放在GitHub Releases，不提交到源码历史。
 
 ## 已交付的两个历史版本
 
@@ -37,6 +37,12 @@ Windows使用固定版本Electron，下载时核对官方SHA-256。安卓更新�
 
 Release应附安装包、说明、SHA256SUMS和实际验证范围；未完成手机实测时标为pre-release。发布前核对根版本、Android versionName/versionCode和标签一致。保留最近一个可用版本；回滚代码通过新提交或新版本，避免删除历史。
 
-## 已准备、尚待上传
+## GitHub上传与发布记录 — 2026-10-15
 
-本地已准备完整Git历史、两个标签和CI配置。需要创建或指定xijue2001账号下的私人日页仓库，再上传。仓库创建、远端标签、Releases与远端CI运行结果仍须以上传后的实际结果为准。
+- 完整源码与版本管理配置已上传main；保留Windows源码、Android源码、构建与版本管理改进的独立提交。
+- windows-v0.1.0指向7529641ed3f9ffc13912e83dac4a42060a9a5710；android-v0.1.0指向ba0ba44bca07b149cba4e7cd12ddc3e6136278c8。
+- 两个Release已发布，均附原安装包、说明和校验文件；Android保持pre-release，未宣称完成Redmi实机测试。
+- 远端自动测试通过：17项核心测试、版本检查、移动适配器构建、Python语法检查。
+- GitHub返回的安装包大小与SHA-256均与releases/manifest.json记录一致；签名私钥、密码和个人日记数据未提交。
+
+首次Android发布的浏览器页面发生网关错误，因此保留一次性工作流publish-android-0.1.0.yml作为审计记录。它只允许在本仓库main上发布编号413339108的既有草稿，发布前核对目标提交和三个附件的大小、状态与SHA-256；不新建Release、不上传或替换附件，重复运行仅核对已发布结果。使用本次任务的临时GITHUB_TOKEN，不保存个人令牌或安卓签名。后续版本仍按上面的升版、测试、构建和发布流程进行。
