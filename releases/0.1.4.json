@@ -1,0 +1,42 @@
+{
+  "version": "0.1.4",
+  "android": {
+    "blob_sha": "9174e24f42fdccb5737ced049119330748e84122",
+    "size": 1989363,
+    "sha256": "127a5233da191891fb83f93d5fa08041b482a65e40ec2fff80525583398e52e4",
+    "classes_sha256": "59e32987e472f7cd005cb5f429fd8b47587f336fd074f12fa1cec6a880a38643",
+    "signer_sha256": "11e792ab77ed0b78538b72e7a12f91745ec38a03a7efddd8854d9734f119ff55"
+  },
+  "build_inputs": {
+    "LICENSE": "9a01cd04a1e13f7812704b60849b8f53807e5d96778ed9de6138214a8950f383",
+    "android/build.py": "d9aa0a4939f1f8eeb86c82c74972290d28c64df0613c06ed3b20d992895c2088",
+    "android/src/AndroidManifest.xml": "3ebe223fa0065fcff91759dfbc42233721ce84927ffad7035bc301602df77c45",
+    "android/src/java/dev/riye/app/Disk.java": "dbf8d33cbe4da4df68f6644ba4be87ec69de34f6100a818f8b683dc7c613b931",
+    "android/src/java/dev/riye/app/MainActivity.java": "9d935e7e2e9796411d02af295cbb935540184b94911bfcb6ad69358b2edb0468",
+    "android/src/res/drawable-anydpi-v26/ic_launcher.xml": "33caec20e09b95aec008b13e6a1b7efd1ae70d379d56e3967993c2cb8022e36a",
+    "android/src/res/drawable-nodpi/ic_launcher.png": "7871373473b628ffaeb805cb9d7f212f21279b057ee1e78717404d65e344ffc6",
+    "android/src/res/drawable-nodpi/ic_launcher_foreground.png": "d37d1738327b855bba97678ea6af473b8f9606e59fa4431387431629413be600",
+    "android/src/res/values/colors.xml": "0bc2f8af1c4cf62fa2002361d054ee5403f2b81d446e366d4c5439fd0fcfa484",
+    "android/src/res/values/styles.xml": "824142cf879370350d7c4fd4f51eed2263a7133d89709544e5b0168b1d2c92f9",
+    "core/dav.cjs": "f888ddceead6d23a083dbec2640281b9d893328c162db820d503441dd4cd761d",
+    "core/model.cjs": "d7f89091ceda75ae1e2bfc8532d34f27c688b40512422e5889bc2350c5a24aeb",
+    "core/store.cjs": "c45350f7af3030eefd2385284644e81dd7b462468cd70301a155ebf9a874c5a8",
+    "core/zip.cjs": "7db495c03903aa37cd59314c3845111b905b4742242342ff6a33b256d92ecb89",
+    "mobile/THIRD_PARTY_LICENSES.txt": "8ba6b612dc1163d33c89932c3a215e3d2a3d3ec76f87270a9be20155917744ae",
+    "mobile/build.cjs": "2036747d44d11aaebce99b955564d69db9067f76bd141e10ca73e4e3c2001074",
+    "mobile/globals.js": "91e82ca5cb299d271d02ad703566df51bc42b05a5fab150073a3be7f0de8b60b",
+    "mobile/package-lock.json": "f8ab88530c7a826704e83914c4053dbf45b7f3dcb0e132d59453bad01f5cb25d",
+    "mobile/package.json": "d9fa510683293a0d19bb7ea12dc1fd306f03c16db6a865612c696cf4f5365492",
+    "mobile/platform.js": "3bc4a45c1a3df83195b22bfc75ed825fe3c02680508093542c2c3c52751105e2",
+    "mobile/shims/crypto.js": "aff9be0832e39ba1080f424000f7f6ebd30a1f6135013f31140a487f70fde5b5",
+    "mobile/shims/fs.js": "fd0639e142a018b3dce750edcf37cf96b5eafe0f3e39289a5f5709838a7e34a4",
+    "mobile/shims/zlib.js": "3adf4b1e260223343ce11871c3c9af5d10110a88699ff97c4a0957a0eaa9cd14",
+    "package-lock.json": "203120a47d870658c05c53a69bb44a2dc6d70fabacb7da4b04c8cc39480acc62",
+    "package.json": "72d8e4dfa54a0345971e11c7a38bf96048a4350fb92ded0f5f349d0c69601862",
+    "renderer/app.js": "e81a25b68bab442b9f2445cf2bf11840601ab6aa6f689890e42b1aeb5b7eb724",
+    "renderer/icon.png": "7871373473b628ffaeb805cb9d7f212f21279b057ee1e78717404d65e344ffc6",
+    "renderer/index.html": "31a8fb617ccb42a0898c71f5d131bef8548efb93c0e89f41d225346fc7362e1b",
+    "renderer/style.css": "ad5e27e705d4a72f0751bf8035857e043ecfcf33af4a9b3397dc6ae29b10b29b",
+    "runtime.json": "a9ea569160a8293c8ee7603ef0ec1054911281a7526e7f1fb35eab0a3a2a910e"
+  }
+}

@@ -47,9 +47,9 @@ public final class MainActivity extends Activity {
                     Uri u=req.getUrl();if(!"https".equals(u.getScheme())||!"appassets.androidplatform.net".equals(u.getHost()))return denied();
                     String p=u.getPath();
                     if(p.startsWith("/data-assets/")){String id=p.substring(13);if(!id.matches("[a-f0-9]{64}"))return denied();File image=disk.resolve("/data/assets/"+id+".bin");byte[] first=new byte[16];int n;try(InputStream in=new FileInputStream(image)){n=in.read(first);}String mime=Disk.mime(Arrays.copyOf(first,Math.max(0,n)));return new WebResourceResponse(mime,null,200,"OK",Collections.singletonMap("Cache-Control","private, max-age=86400"),new FileInputStream(image));}
-                    if(!p.startsWith("/assets/"))return denied();String name=p.substring(8);if(!Arrays.asList("index.html","app.js","bridge.js","style.css","icon.svg").contains(name))return denied();
-                    String mime=name.endsWith(".html")?"text/html":name.endsWith(".css")?"text/css":name.endsWith(".svg")?"image/svg+xml":"text/javascript";
-                    return new WebResourceResponse(mime,"UTF-8",getAssets().open(name));
+                    if(!p.startsWith("/assets/"))return denied();String name=p.substring(8);if(!Arrays.asList("index.html","app.js","bridge.js","style.css","icon.png").contains(name))return denied();
+                    String mime=name.endsWith(".html")?"text/html":name.endsWith(".css")?"text/css":name.endsWith(".png")?"image/png":"text/javascript";
+                    return new WebResourceResponse(mime,name.endsWith(".png")?null:"UTF-8",getAssets().open(name));
                 }catch(Exception e){return new WebResourceResponse("text/plain","UTF-8",404,"Not Found",Collections.emptyMap(),new ByteArrayInputStream(new byte[0]));}
             }
         });

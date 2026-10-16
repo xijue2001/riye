@@ -7,7 +7,7 @@ const executablePath=process.env.ELECTRON_BINARY||path.join(appRoot,'.runtime/li
 let electron;
 const localDate=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 const prev=day=>{const d=new Date(day+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
-async function start(){electron=await _electron.launch({executablePath,args:['--no-sandbox','--ozone-platform=headless','--disable-gpu',appRoot],env:{...process.env,RIYE_TEST_MODE:'1',RIYE_DATA_DIR:root},timeout:20000});const page=await electron.firstWindow();await page.setViewportSize({width:1440,height:1000});await page.waitForSelector('[data-document]');return page;}
+async function start(){electron=await _electron.launch({executablePath,args:['--no-sandbox','--ozone-platform=headless','--disable-gpu',appRoot],env:{...process.env,RIYE_TEST_MODE:'1',RIYE_DATA_DIR:root},timeout:20000});const page=await electron.firstWindow();await page.setViewportSize({width:1440,height:1000});await page.waitForSelector('[data-document]');await page.waitForFunction(()=>document.querySelector('.brand img')?.naturalWidth>0);return page;}
 (async()=>{
   let p=await start();assert.equal(await p.locator('.schedule-grid,.schedule-empty').count(),0);assert((await p.locator('.daily-plan-empty').innerText()).includes('当天计划：无'));const errors=[];p.on('pageerror',e=>errors.push(e.message));const day=localDate(),intent='note:'+day+':intent',diary='note:'+day+':diary';
   await p.locator(`[data-document="${intent}"] [contenteditable]`).first().fill('联系供应商\n整理工作资料');

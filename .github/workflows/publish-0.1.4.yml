@@ -1,0 +1,42 @@
+name: Publish verified Riye 0.1.4
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-0.1.4.yml
+      - scripts/publish_014.py
+      - releases/0.1.4.json
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-0.1.4
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'xijue2001/riye' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Verify version and core compatibility
+        run: |
+          python3 scripts/versions.py check --tag v0.1.4
+          npm ci
+          npm test
+          npm ci --prefix mobile
+          node mobile/build.cjs
+      - name: Build and verify Windows and source archives
+        run: |
+          python3 scripts/get-runtime.py .runtime win32
+          python3 scripts/package.py
+      - name: Verify reviewed Android bytes and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_014.py
