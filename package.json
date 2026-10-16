@@ -13,5 +13,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "resedit": "3.1.0"
   }
 }

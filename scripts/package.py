@@ -4,6 +4,8 @@ import hashlib
 import argparse
 import json
 import shutil
+import subprocess
+import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,7 +22,15 @@ runtime_zip = ROOT / '.runtime' / f'electron-v{RUNTIME_VERSION}-win32-x64.zip'
 windows_zip = DIST / (NAME + '.zip')
 
 if not options.source_only:
-    # Stream source members into the deliverable, without intermediate DLL copies.
+    # Brand only the launcher resources; all other official runtime members stay unchanged.
+    with tempfile.TemporaryDirectory(prefix='riye-icon-') as temporary:
+        original_exe = Path(temporary) / 'electron.exe'
+        branded_exe = Path(temporary) / 'Riye.exe'
+        with zipfile.ZipFile(runtime_zip) as original:
+            with original.open('electron.exe') as source, original_exe.open('wb') as target:
+                shutil.copyfileobj(source, target)
+        subprocess.run(['node', str(ROOT/'scripts/windows-icon.cjs'), str(original_exe), str(branded_exe)], check=True)
+        launcher = branded_exe.read_bytes()
     with zipfile.ZipFile(runtime_zip) as original, zipfile.ZipFile(windows_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=5) as output:
         for info in original.infolist():
             name = 'Riye.exe' if info.filename == 'electron.exe' else info.filename
@@ -30,6 +40,9 @@ if not options.source_only:
             target.file_size = info.file_size
             if info.is_dir():
                 output.writestr(target, b'')
+                continue
+            if info.filename == 'electron.exe':
+                output.writestr(target, launcher)
                 continue
             total = 0
             with original.open(info) as source, output.open(target, 'w') as destination:
@@ -52,6 +65,10 @@ if not options.source_only:
             if info.is_dir():
                 continue
             name = 'Riye.exe' if info.filename == 'electron.exe' else info.filename
+            if info.filename == 'electron.exe':
+                if packaged.read(PREFIX+name) != launcher:
+                    raise RuntimeError('Packaged launcher differs from verified branded executable')
+                continue
             actual = packaged.getinfo(PREFIX + name)
             if actual.file_size != info.file_size or actual.CRC != info.CRC:
                 raise RuntimeError('Packaged runtime differs from official binary: ' + name)
@@ -62,7 +79,7 @@ with zipfile.ZipFile(source_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=5) as 
         for file in sorted((ROOT / directory).rglob('*')):
             if file.is_file() and not any(part in {'node_modules','.tools','.private','build','__pycache__'} for part in file.relative_to(ROOT).parts):
                 archive.writestr('riye-source/' + file.relative_to(ROOT).as_posix(), file.read_bytes())
-    for name in ['package.json', 'runtime.json', 'README.md', 'ANDROID.md', 'BUILDING.md', 'THIRD_PARTY.md', 'VERSIONING.md', 'CHANGELOG.md', 'LICENSE', '.gitignore', '.gitattributes']:
+    for name in ['package.json', 'package-lock.json', 'runtime.json', 'README.md', 'ANDROID.md', 'BUILDING.md', 'THIRD_PARTY.md', 'VERSIONING.md', 'CHANGELOG.md', 'LICENSE', '.gitignore', '.gitattributes']:
         archive.writestr('riye-source/' + name, (ROOT / name).read_bytes())
 artifacts=[source_zip] if options.source_only else [windows_zip,source_zip]
 for artifact in artifacts:

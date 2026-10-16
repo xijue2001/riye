@@ -24,9 +24,9 @@ app.whenReady().then(async()=>{
     const u=new URL(request.url);
     if(u.hostname==='asset')try{const id=u.pathname.slice(1),bytes=store.readAsset(id);return new Response(bytes,{headers:{'Content-Type':sniffImage(bytes),'Cache-Control':'private, max-age=86400'}});}catch{return new Response('图片尚未下载',{status:404});}
     if(u.hostname!=='app')return new Response('',{status:404});
-    const name=decodeURIComponent(u.pathname).replace(/^\//,'')||'index.html';const allowed=new Set(['index.html','app.js','style.css','icon.svg']);
+    const name=decodeURIComponent(u.pathname).replace(/^\//,'')||'index.html';const allowed=new Set(['index.html','app.js','style.css','icon.png']);
     if(!allowed.has(name))return new Response('',{status:404});
-    const mime={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',svg:'image/svg+xml'}[name.split('.').at(-1)];
+    const mime={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',png:'image/png'}[name.split('.').at(-1)];
     return new Response(fs.readFileSync(path.join(__dirname,'../renderer',name)),{headers:{'Content-Type':mime}});
   });
   handle('init',()=>({config:publicConfig(),status:store.status(),version:app.getVersion()}));
@@ -55,7 +55,7 @@ app.whenReady().then(async()=>{
   handle('open-data',()=>shell.openPath(store.root));handle('open-backups',()=>shell.openPath(path.join(store.root,'backups')));
   handle('close-ready',()=>{closeAllowed=true;win.close();});
   session.defaultSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
-  win=new BrowserWindow({width:1440,height:960,minWidth:1000,minHeight:720,title:'日页',backgroundColor:'#f6f7f3',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
+  win=new BrowserWindow({width:1440,height:960,minWidth:1000,minHeight:720,title:'日页',icon:path.join(__dirname,'../renderer/icon.png'),backgroundColor:'#f6f7f3',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
   win.on('close',event=>{if(!closeAllowed){event.preventDefault();win.webContents.send('before-close');}});
   await win.loadURL('daybook://app/index.html');store.autoBackup();autoSync.configure(config);

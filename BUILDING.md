@@ -5,11 +5,14 @@
 保留 Electron 44.7.2 官方 x64 运行时。执行：
 
 ```sh
+npm ci
 python3 scripts/get-runtime.py .runtime win32
 python3 scripts/package.py
 ```
 
-Windows 运行包直接从官方 ZIP 流式复制并复核每个运行时文件的尺寸与 CRC。应用数据位于用户数据目录，与解压的软件目录分开。
+Windows 运行包使用官方 ZIP。`Riye.exe` 只替换图标和产品版本资源；构建时重新读取 PE 资源验证图标，并逐节校验所有非资源区段字节。其余运行时文件流式复制并复核尺寸与 CRC。程序 EXE 的校验值与原 Electron EXE 不同，不沿用原文件的数字签名。应用数据位于用户数据目录，与解压的软件目录分开。
+
+图标资源位于 `renderer/icon.png`、`desktop/icon.ico` 和 `android/src/res/drawable-nodpi/`。Android 使用独立前景层及背景色提供自适应图标，主体保留在安全区内，支持圆形及圆角方形桌面遮罩。
 
 ## Android
 
