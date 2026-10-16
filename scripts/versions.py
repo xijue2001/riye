@@ -12,7 +12,8 @@ def check(tag=None):
     package=read_json('package.json');version=package['version'];version_parts(version)
     mobile=read_json('mobile/package.json');lock=read_json('mobile/package-lock.json')
     manifest=ET.parse(ROOT/'android/src/AndroidManifest.xml').getroot()
-    versions=[mobile['version'],lock['version'],lock['packages']['']['version'],manifest.get(ANDROID+'versionName')]
+    root_lock=read_json('package-lock.json')
+    versions=[root_lock['version'],root_lock['packages']['']['version'],mobile['version'],lock['version'],lock['packages']['']['version'],manifest.get(ANDROID+'versionName')]
     if any(value!=version for value in versions):raise ValueError('package、mobile lock 和 Android versionName 不一致，请使用 bump 命令')
     code=int(manifest.get(ANDROID+'versionCode','0'))
     if code<1:raise ValueError('Android versionCode 必须大于零')
@@ -24,7 +25,7 @@ def bump(value):
     old=check();new=version_parts(value)
     if new<=version_parts(old['version']):raise ValueError('新版本必须大于当前版本；旧版本标签不重新使用')
     if old['androidVersionCode']>=2100000000:raise ValueError('Android versionCode 已达上限')
-    for name in ['package.json','mobile/package.json','mobile/package-lock.json']:
+    for name in ['package.json','package-lock.json','mobile/package.json','mobile/package-lock.json']:
         data=read_json(name);data['version']=value
         if name.endswith('package-lock.json'):data['packages']['']['version']=value
         write_json(name,data)
