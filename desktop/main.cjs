@@ -30,7 +30,7 @@ app.whenReady().then(async()=>{
     return new Response(fs.readFileSync(path.join(__dirname,'../renderer',name)),{headers:{'Content-Type':mime}});
   });
   handle('init',()=>({config:publicConfig(),status:store.status(),version:app.getVersion()}));
-  handle('day',day=>store.getDay(day));handle('history',()=>store.history());handle('plans',()=>store.plans());handle('versions',id=>store.all(id).sort((a,b)=>b.timestamp.localeCompare(a.timestamp)));
+  handle('day',day=>store.getDay(day));handle('history',()=>store.history());handle('plans',()=>store.plans());handle('versions',id=>store.versions(id));
   handle('save',data=>{const result=store.save(data);changed();return result;});
   handle('day-delete',data=>{const result=store.deleteDay(data);changed();return result;});
   handle('device-name',name=>{const result=store.setDeviceName(name);changed();return result;});
@@ -55,7 +55,7 @@ app.whenReady().then(async()=>{
   handle('open-data',()=>shell.openPath(store.root));handle('open-backups',()=>shell.openPath(path.join(store.root,'backups')));
   handle('close-ready',()=>{closeAllowed=true;win.close();});
   session.defaultSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
-  win=new BrowserWindow({width:1440,height:960,minWidth:1000,minHeight:720,title:'日页',icon:path.join(__dirname,'../renderer/icon.png'),backgroundColor:'#f6f7f3',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
+  win=new BrowserWindow({show:!testing,width:1440,height:960,minWidth:1000,minHeight:720,title:'日页',icon:path.join(__dirname,'../renderer/icon.png'),backgroundColor:'#f6f7f3',autoHideMenuBar:true,webPreferences:{offscreen:testing,backgroundThrottling:!testing,preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
   win.on('close',event=>{if(!closeAllowed){event.preventDefault();win.webContents.send('before-close');}});
   await win.loadURL('daybook://app/index.html');store.autoBackup();autoSync.configure(config);
