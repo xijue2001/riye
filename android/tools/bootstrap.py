@@ -13,6 +13,7 @@ TOOLS=ROOT/'.tools'
 TOOLS.mkdir(parents=True,exist_ok=True)
 REPO='https://dl.google.com/android/repository/'
 MAVEN='https://repo.maven.apache.org/maven2/'
+HOST='windows' if os.name=='nt' else 'macosx' if os.uname().sysname=='Darwin' else 'linux'
 def fetch(url):
     with urllib.request.urlopen(url,timeout=60) as r:return r.read()
 def download(url,target,expected=None,algorithm='sha256'):
@@ -42,7 +43,7 @@ for item in repo.iter('remotePackage'):
     package=item.get('path')
     if package not in ['platforms;android-36','build-tools;36.0.0','platform-tools']:continue
     for archive in item.findall('archives/archive'):
-        if archive.findtext('host-os') not in [None,'linux']:continue
+        if archive.findtext('host-os') not in [None,HOST]:continue
         url=archive.findtext('complete/url')
         if package=='platforms;android-36' and '-ext' in url:continue
         packages.append((package,url,archive.findtext('complete/checksum')))
