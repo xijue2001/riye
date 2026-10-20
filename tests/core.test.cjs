@@ -6,6 +6,14 @@ test.after(()=>{for(const p of roots)fs.rmSync(p,{recursive:true,force:true});})
 const block=text=>({id:uuid(),kind:'text',text});const note='note:2026-10-14:diary';
 function write(s,text,entityId=note,parents=s.get(entityId).heads.map(r=>r.id)){return s.save({entityId,parents,payload:{blocks:[block(text)]}}).revision;}
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwYQAAAAASUVORK5CYII=','base64');
+test('idle synchronization and repeated unchanged saves create no revisions; additions stay out of history on both peers',async()=>{
+ const dav=await server();try{const a=store(),b=store();write(a,'测试正文');write(a,'测试正文追加一句');
+ await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);const count=a.revisions.size;
+ for(let i=0;i<3;i++){write(a,'测试正文追加一句');await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);}
+ assert.equal(a.revisions.size,count);assert.equal(b.revisions.size,count);assert.equal(a.versions(note).length,1);assert.equal(b.versions(note).length,1);
+ write(a,'测试内容改写');await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);assert.equal(b.versions(note).length,2);
+ }finally{await dav.close();}
+});
 async function server(){
   const files=new Map(),dirs=new Set(['/']),control={failAssetOnce:false,partialOnce:null,truncateSuccessOnce:false,denyExistingMkcol:false};
   const srv=http.createServer(async(req,res)=>{

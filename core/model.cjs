@@ -100,4 +100,4 @@ function validateGraph(revisions){
   if(count!==index.size)throw Error('记录版本关系损坏');
   return queue.map(id=>index.get(id));
 }
-module.exports={uuid,localDate,validDate,blocks,plan,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice,selectHeads};
+module.exports={uuid,localDate,validDate,blocks,plan,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice,selectHeads,contentKey};

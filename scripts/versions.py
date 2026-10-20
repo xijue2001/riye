@@ -3,8 +3,8 @@ from pathlib import Path
 import argparse,json,re,sys,xml.etree.ElementTree as ET
 ROOT=Path(__file__).resolve().parent.parent
 ANDROID='{http://schemas.android.com/apk/res/android}'
-def read_json(name):return json.loads((ROOT/name).read_text())
-def write_json(name,value):(ROOT/name).write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n')
+def read_json(name):return json.loads((ROOT/name).read_text(encoding="utf-8"))
+def write_json(name,value):(ROOT/name).write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 def version_parts(value):
     if not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)',value):raise ValueError('版本必须为 MAJOR.MINOR.PATCH，例如 0.1.1')
     return tuple(map(int,value.split('.')))
@@ -19,7 +19,7 @@ def check(tag=None):
     if code<1:raise ValueError('Android versionCode 必须大于零')
     if tag is not None and tag!='v'+version:raise ValueError('发布标签与版本不一致：'+tag+' / '+version)
     history=ROOT/'releases/manifest.json'
-    if tag is not None and history.exists() and any(r['version']==version and r['tag']!=tag for r in json.loads(history.read_text())['artifacts']):raise ValueError('该版本已按历史平台标签交付，请提升版本后创建统一发布标签')
+    if tag is not None and history.exists() and any(r['version']==version and r['tag']!=tag for r in json.loads(history.read_text(encoding="utf-8"))['artifacts']):raise ValueError('该版本已按历史平台标签交付，请提升版本后创建统一发布标签')
     return {'version':version,'androidVersionCode':code}
 def bump(value):
     old=check();new=version_parts(value)
@@ -29,10 +29,10 @@ def bump(value):
         data=read_json(name);data['version']=value
         if name.endswith('package-lock.json'):data['packages']['']['version']=value
         write_json(name,data)
-    path=ROOT/'android/src/AndroidManifest.xml';text=path.read_text()
+    path=ROOT/'android/src/AndroidManifest.xml';text=path.read_text(encoding="utf-8")
     text=re.sub(r'android:versionName="[^"]+"','android:versionName="'+value+'"',text,count=1)
     text=re.sub(r'android:versionCode="\d+"','android:versionCode="'+str(old['androidVersionCode']+1)+'"',text,count=1)
-    path.write_text(text)
+    path.write_text(text,encoding="utf-8")
     return check()
 parser=argparse.ArgumentParser(description=__doc__)
 sub=parser.add_subparsers(dest='command',required=True)

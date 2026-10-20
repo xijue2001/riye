@@ -11,7 +11,7 @@ async function check(mobile){
   disk.save({entityId:intent,parents:[],payload:{blocks:[]}});
   let app;
   try{
-    app=await _electron.launch({executablePath:path.join(project,'.runtime/linux/electron'),args:['--no-sandbox','--ozone-platform=headless','--disable-gpu',mobile?path.join(__dirname,'mobile-host.cjs'):project],env:{...process.env,RIYE_TEST_MODE:'1',RIYE_DATA_DIR:root,RIYE_TEST_DIR:root},timeout:20000});
+    app=await _electron.launch({executablePath:process.env.ELECTRON_BINARY||path.join(project,'.runtime/linux/electron'),args:['--no-sandbox','--ozone-platform=headless','--disable-gpu',mobile?path.join(__dirname,'mobile-host.cjs'):project],env:{...process.env,RIYE_TEST_MODE:'1',RIYE_DATA_DIR:root,RIYE_TEST_DIR:root},timeout:20000});
     const p=await app.firstWindow(),errors=[];p.on('pageerror',e=>errors.push(e.message));
     await p.setViewportSize({width:mobile?393:1440,height:950});await p.waitForSelector(`[data-document="${id}"]`);
     if(mobile)await p.evaluate(()=>{window.daybook.assetUrl=id=>'daybook://asset/'+id;});

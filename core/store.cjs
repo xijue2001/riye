@@ -1,6 +1,7 @@
 'use strict';
 const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');
-const {uuid,localDate,validDate,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice,selectHeads}=require('./model.cjs');
+const {uuid,localDate,validDate,validateRevision,heads,assetsOf,occurrence,sniffImage,validateGraph,hasNoteContent,validateDevice,selectHeads,contentKey}=require('./model.cjs');
+const {historyVersions}=require('./history.cjs');
 const {makeZip,readZip}=require('./zip.cjs');
 function atomicWrite(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const tmp=file+'.'+uuid()+'.tmp';try{const fd=fs.openSync(tmp,'wx');try{fs.writeFileSync(fd,data);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(tmp,file);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}}
 class Store{
@@ -25,6 +26,7 @@ class Store{
   setDeviceName(name){const d=validateDevice({...this.deviceInfo(),name,updatedAt:new Date(Math.max(Date.now(),Date.parse(this.profile.deviceNameUpdatedAt)+1)).toISOString()});this.profile.deviceName=d.name;this.profile.deviceNameUpdatedAt=d.updatedAt;atomicWrite(path.join(this.root,'profile.json'),JSON.stringify(this.profile));this.importDevice(d);return this.status();}
   setDataset(id){if(!/^[a-f0-9-]{36}$/.test(id))throw Error('同步目录标识不正确');if(this.profile.datasetId&&this.profile.datasetId!==id)throw Error('此同步目录属于另一份数据，请检查 WebDAV 地址和目录');this.profile.datasetId=id;atomicWrite(path.join(this.root,'profile.json'),JSON.stringify(this.profile));}
   all(entityId){return [...(this.entities.get(entityId)||[])].map(id=>this.revisions.get(id));}
+  versions(entityId){const current=this.get(entityId).revision?.id;return historyVersions(this.all(entityId)).map(r=>({...r,current:r.id===current}));}
   get(entityId){const all=this.all(entityId),h=heads(all);const first=all.filter(hasNoteContent).sort((a,b)=>a.timestamp.localeCompare(b.timestamp))[0];return{entityId,heads:h,...selectHeads(h),firstEditedAt:first?.timestamp||null};}
   reconcileConflicts(){
     const merged=[];
@@ -48,12 +50,15 @@ class Store{
   importRevision(raw){const r=validateRevision(raw),existing=this.revisions.get(r.id);if(existing){if(JSON.stringify(existing)!==JSON.stringify(r))throw Error('发现编号相同但内容不同的记录');return existing;}atomicWrite(path.join(this.root,'revisions',r.id+'.json'),JSON.stringify(r));this.addIndex(r);return r;}
   save({entityId,payload,parents,deleted=false,firstEditedAt}){
     if(!Array.isArray(parents)||parents.some(id=>this.revisions.get(id)?.entityId!==entityId))throw Error('保存基于的版本不正确，请重新打开记录');
-    this.autoBackup();
     let effectiveDate=localDate();
     if(entityId.startsWith('plan:')&&!this.entities.has(entityId)&&!deleted){if(payload.kind==='once')effectiveDate=payload.date;if(payload.kind==='weekly')effectiveDate=payload.startDate;if(payload.kind==='course')effectiveDate=payload.lessons.map(l=>l.date).sort()[0];}
     let timestamp=new Date().toISOString();
     if(entityId.endsWith(':diary')&&!deleted&&hasNoteContent({payload})&&!this.all(entityId).some(hasNoteContent)&&firstEditedAt){if(!Number.isFinite(Date.parse(firstEditedAt))||Date.parse(firstEditedAt)>Date.now()+5000)throw Error('首次编辑时间不正确');timestamp=new Date(firstEditedAt).toISOString();}
     const r=validateRevision({schema:1,id:uuid(),deviceId:this.profile.deviceId,entityId,parents,timestamp,effectiveDate,deleted,payload});
+    const record=this.get(entityId);
+    const sameParents=JSON.stringify([...new Set(parents)].sort())===JSON.stringify(record.heads.map(x=>x.id).sort());
+    if(record.revision&&record.heads.length===1&&sameParents&&record.revision.deleted===r.deleted&&contentKey(record.revision)===contentKey({...r,effectiveDate:record.revision.effectiveDate}))return{revision:record.revision,record,status:this.status()};
+    this.autoBackup();
     this.importRevision(r);return{revision:r,record:this.get(entityId),status:this.status()};
   }
   deleteDay({date,parents}){

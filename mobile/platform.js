@@ -47,7 +47,7 @@ async function restore(source){
 }
 window.daybook={
  platform:'android',assetUrl:id=>'https://appassets.androidplatform.net/data-assets/'+id,
- init,day:async day=>store.getDay(day),history:async()=>store.history(),plans:async()=>store.plans(),versions:async id=>store.all(id).sort((a,b)=>b.timestamp.localeCompare(a.timestamp)),
+ init,day:async day=>store.getDay(day),history:async()=>store.history(),plans:async()=>store.plans(),versions:async id=>store.versions(id),
  save:async data=>{const r=store.save(data);changed();return r;},addImage:async bytes=>{const r=store.addAsset(bytes);changed();return r;},pickImages:async context=>{const r=await nativeCall('pick-images',context);imageToken=r?.token||null;changed();return r?.images||[];},ackImages:async()=>{if(imageToken)await nativeCall('ack-media',{token:imageToken});imageToken=null;},
  deleteDay:async data=>{const r=store.deleteDay(data);changed();return r;},setDeviceName:async name=>{const r=store.setDeviceName(name);changed();return r;},
  sync:()=>sync.run({...config}),saveConfig:async raw=>{if(sync.running)throw Error('请等待同步结束后再修改连接');const next=normalizeConfig({...raw,password:raw.password===''&&raw.keepPassword!==false?config.password:raw.password,auto:false});await nativeCall('save-config',next);config=next;store.updateRemote({lastError:null});changed();return publicConfig();},

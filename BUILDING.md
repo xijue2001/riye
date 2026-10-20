@@ -32,7 +32,11 @@ python3 android/build.py
 
 本仓库已对应现有应用，构建前必须恢复此前保留的 `android/.private/` 安装更新签名。没有签名时构建会停止；只有从未安装过的全新项目首次生成签名才使用 `python3 android/build.py --new-signing-key`。**为同一已安装应用发布更新，必须恢复此前保留的签名和密码，不要另生成一个新签名。** 签名不在源码包里，另存于“日页-Android更新签名备份.zip”；恢复该包内文件到 `android/.private/` 后构建。禁止提交或公开该目录。
 
-输出：`dist/Riye-Android-v0.1.4.apk`。安装包面向 Android 8.0 及以上，target API 36，无本机 CPU 库，适用于 Redmi 的 ARM64 设备。只申请 INTERNET 权限；图片和备份使用系统文档选择器。
+完整签名备份应保存在源码目录之外的独立保管目录，构建时只复制出工作副本。更换开发目录或清理构建产物不会带走独立备份；新工作区缺少签名时，应先查找保管副本，不要据此认定签名已丢失。
+
+Windows构建会使用`.exe`版SDK工具、当前Python解释器和UTF-8源码。已有Android SDK可通过`ANDROID_SDK_ROOT`指定；须包含API 36与Build Tools 36.0.0。项目内`android/.tools/sdk-extracted/`的已校验工具优先使用，Windows和Linux的安卓构建采用同一份Java与共享界面源码。
+
+输出：`dist/Riye-Android-v0.1.5.apk`。安装包面向 Android 8.0 及以上，target API 36，无本机 CPU 库，适用于 Redmi 的 ARM64 设备。只申请 INTERNET 权限；图片和备份使用系统文档选择器。
 
 ## 自动验证
 
@@ -42,9 +46,12 @@ PLAYWRIGHT_MODULE=<playwright路径> node tests/ui.cjs
 PLAYWRIGHT_MODULE=<playwright路径> node tests/conflict-ui.cjs
 PLAYWRIGHT_MODULE=<playwright路径> node tests/mobile-ui.cjs
 PLAYWRIGHT_MODULE=<playwright路径> node tests/organize-ui.cjs
+PLAYWRIGHT_MODULE=<playwright路径> node tests/history-ui.cjs
 ```
 
 UI 检查需要 `.runtime/linux/electron`，可通过 `scripts/get-runtime.py` 获取，启动使用无界面模式。移动 UI 检查使用 Electron 内的原生接口替身，验证共享移动 bundle，不替代真实安卓运行测试。
+
+Windows 可通过 `ELECTRON_BINARY` 指定对应 Electron 可执行文件。测试使用独立数据目录和隐藏离屏窗口，不读取真实日记。0.1.5已在Windows Electron环境通过电脑与手机界面、历史恢复、冲突与整理回归检查；Android APK已用原更新签名构建并通过签名、版本与资源检查，另通过Java私有文件与备份测试，尚未完成真实手机安装运行验证。
 
 安卓文件适配器的 JVM 检查：
 
