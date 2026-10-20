@@ -20,6 +20,7 @@ connection.local.json
 # Personal records, original photos and backups
 data-v1/
 revisions/
+checkpoints/
 assets/
 backups/
 profile.json

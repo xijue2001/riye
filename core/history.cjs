@@ -1,5 +1,23 @@
 'use strict';
-const {heads,contentKey,hasNoteContent}=require('./model.cjs');
+const {heads,contentKey,hasNoteContent,validDate}=require('./model.cjs');
+
+const uuidPattern=/^[a-f0-9-]{36}$/;
+function validateCheckpoint(value){
+  const note=/^note:(\d{4}-\d{2}-\d{2}):(intent|diary)$/.exec(value?.entityId);
+  if(value?.format!=='riye-checkpoint'||value.schema!==1||!uuidPattern.test(value.id)||!uuidPattern.test(value.revisionId)||!uuidPattern.test(value.deviceId)||!note||!validDate(note[1])||!['start','save'].includes(value.kind)||!Number.isFinite(Date.parse(value.timestamp)))throw Error('历史保存点格式不正确');
+  return {format:'riye-checkpoint',schema:1,id:value.id,entityId:value.entityId,revisionId:value.revisionId,deviceId:value.deviceId,kind:value.kind,timestamp:value.timestamp};
+}
+function ancestorIds(revision,index){
+  const result=new Set(),pending=[revision.id];
+  while(pending.length){const id=pending.pop();if(result.has(id))continue;result.add(id);pending.push(...(index.get(id)?.parents||[]));}
+  return result;
+}
+function manualScope(revisions,checkpoints){
+  const children=new Map();for(const r of revisions)for(const id of r.parents){if(!children.has(id))children.set(id,[]);children.get(id).push(r.id);}
+  const result=new Set(),pending=checkpoints.filter(c=>c.kind==='start').map(c=>c.revisionId);
+  while(pending.length){const id=pending.pop();if(result.has(id))continue;result.add(id);pending.push(...(children.get(id)||[]));}
+  return result;
+}
 
 function includesInOrder(before,after){
   if(before===after)return true;
@@ -35,19 +53,24 @@ function onlyAdds(before,after){
   return next.done;
 }
 const newest=(a,b)=>b.timestamp.localeCompare(a.timestamp)||b.id.localeCompare(a.id);
-function historyVersions(revisions){
+function historyVersions(revisions,events=[]){
   const index=new Map(revisions.map(r=>[r.id,r])),current=heads(revisions).sort(newest),checkpoints=[];
+  const starts=new Set(events.filter(c=>c.kind==='start').map(c=>c.revisionId)),manual=manualScope(revisions,events),saved=new Map();
+  for(const c of events.filter(c=>c.kind==='save').sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.id.localeCompare(b.id))){
+    const r=index.get(c.revisionId);if(r)saved.set(r.id,{...r,timestamp:c.timestamp,deviceId:c.deviceId,saved:true});
+  }
   for(const child of revisions)for(const id of child.parents){
     const parent=index.get(id);
-    if(parent&&!onlyAdds(parent,child))checkpoints.push(parent);
+    if(parent&&(!manual.has(child.id)||starts.has(child.id))&&!onlyAdds(parent,child))checkpoints.push(parent);
   }
+  checkpoints.push(...saved.values());
   const seen=new Set(),result=[];
   // Current heads win over equal old checkpoints, regardless of clock skew.
   for(const r of [...current,...checkpoints.sort(newest)]){
-    if(!r.deleted&&!hasNoteContent(r)&&r.entityId.startsWith('note:'))continue;
+    if(!r.deleted&&!hasNoteContent(r)&&r.entityId.startsWith('note:')&&!saved.has(r.id)&&!(manual.has(r.id)&&current.some(x=>x.id===r.id)&&saved.size))continue;
     const key=(r.deleted?'deleted:':'content:')+contentKey(r);
-    if(seen.has(key))continue;seen.add(key);result.push(r);
+    if(seen.has(key))continue;seen.add(key);result.push(saved.get(r.id)||r);
   }
   return result;
 }
-module.exports={onlyAdds,historyVersions};
+module.exports={onlyAdds,historyVersions,validateCheckpoint,ancestorIds,manualScope};

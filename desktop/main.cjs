@@ -31,7 +31,7 @@ app.whenReady().then(async()=>{
   });
   handle('init',()=>({config:publicConfig(),status:store.status(),version:app.getVersion()}));
   handle('day',day=>store.getDay(day));handle('history',()=>store.history());handle('plans',()=>store.plans());handle('versions',id=>store.versions(id));
-  handle('save',data=>{const result=store.save(data);changed();return result;});
+  handle('save',data=>{const result=store.save(data);changed();return result;});handle('checkpoint',data=>{const result=store.checkpoint(data);changed();return result;});
   handle('day-delete',data=>{const result=store.deleteDay(data);changed();return result;});
   handle('device-name',name=>{const result=store.setDeviceName(name);changed();return result;});
   handle('image-add',data=>{const result=store.addAsset(data);changed();return result;});
