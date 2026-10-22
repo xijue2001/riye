@@ -32,7 +32,7 @@ async function start(){electron=await _electron.launch({executablePath,args:['--
   await p.screenshot({path:path.join(appRoot,'.qa-calendar.png')});
   assert.equal(await p.locator('#calendar-jump').count(),0);await empty.click();
   await p.waitForSelector(`[data-document="note:${prev(day)}:intent"]`);await p.locator(`[data-document="note:${prev(day)}:intent"] [contenteditable]`).fill('完成了八件事\n还要联系售后\n还要整理账单');
-  await p.locator('[data-action=day-today]').click();await p.waitForSelector(`[data-document="${intent}"]`);
+  await p.keyboard.press('Control+s');await p.waitForFunction(()=>document.getElementById('toast').textContent==='已保存版本。');await p.locator('[data-action=day-today]').click();await p.waitForSelector(`[data-document="${intent}"]`);
   await p.waitForFunction(()=>document.getElementById('reference-copy').textContent.includes('还要整理账单'));
   await p.evaluate(()=>{const el=document.querySelector('#reference-copy p'),text=el.firstChild;const range=document.createRange();const start=text.textContent.indexOf('还要联系售后');range.setStart(text,start);range.setEnd(text,text.textContent.length);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));});
   await p.locator('[data-action=carry-selection]').click();assert((await p.locator(`[data-document="${intent}"]`).innerText()).includes('还要联系售后'));

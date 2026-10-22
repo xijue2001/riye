@@ -13,7 +13,7 @@ const fullStamp=s=>new Date(s).toLocaleString('zh-CN',{year:'numeric',month:'2-d
 const hasContent=blocks=>blocks.some(b=>b.kind==='image'||b.text?.trim()||(b.kind==='check'&&b.checked));
 const deviceLabel=r=>state.status.devices?.[r.deviceId]||'未命名设备 '+r.deviceId.slice(0,6);
 const state={page:'today',date:today(),refDate:shift(today(),-1),config:null,status:{},docs:new Map(),active:null,refSelection:'',schedule:[],plans:[],planDraft:null,remoteUpdate:false,refOpen:false};
-const dirty=new Map();let saveTimer,flushing,toastTimer;
+const dirty=new Map();let saveTimer,flushing,toastTimer,checkpointing;
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);}
 function setSaveState(text){$('#save-state').textContent=text;if($('#mobile-save-state'))$('#mobile-save-state').textContent=text;}
 function mark(doc){if(doc.entityId.endsWith(':diary')&&!doc.firstEditedAt&&hasContent(doc.blocks))doc.firstEditedAt=new Date().toISOString();doc.generation=(doc.generation||0)+1;dirty.set(doc.entityId,doc);syncOrganizeMode(doc);renderDocMeta(doc);setSaveState('正在保存…');clearTimeout(saveTimer);saveTimer=setTimeout(()=>flush().catch(e=>toast(e.message)),350);}
@@ -21,11 +21,16 @@ function flush(){
   if(flushing)return flushing;
   flushing=(async()=>{
     while(dirty.size){const [id,doc]=dirty.entries().next().value;dirty.delete(id);try{
-      const result=await api.save({entityId:id,payload:{blocks:structuredClone(doc.blocks)},parents:[...doc.parents],firstEditedAt:doc.firstEditedAt});
+      const result=await api.save({entityId:id,payload:{blocks:structuredClone(doc.blocks)},parents:[...doc.parents],firstEditedAt:doc.firstEditedAt,historyMode:'draft'});
       doc.parents=[result.revision.id];doc.heads=result.record.heads;doc.revision=result.revision;doc.firstEditedAt=result.record.firstEditedAt||doc.firstEditedAt;updateStatus(result.status);
     }catch(e){dirty.set(id,doc);setSaveState('保存未完成，请保留窗口');throw e;}}
     setSaveState('已保存在本机');
   })().finally(()=>flushing=null);return flushing;
+}
+async function saveVersion(docId){
+  if(checkpointing)return checkpointing;
+  const docs=(docId?[docId]:$$('[data-document]').map(el=>el.dataset.document)).map(id=>state.docs.get(id)).filter(Boolean);
+  checkpointing=(async()=>{await flush();let created=false;for(const doc of docs)if(doc.revision){const result=await api.checkpoint({entityId:doc.entityId,revisionId:doc.revision.id});created=created||result.created;updateStatus(result.status);}toast(created?'已保存版本。':'内容未变化，无需新增版本。');})().finally(()=>checkpointing=null);return checkpointing;
 }
 function asDoc(record){const blocks=structuredClone(record.revision?.payload?.blocks||[]);return{entityId:record.entityId,blocks:blocks.length?blocks:[{id:uid(),kind:'text',text:''}],organizing:false,parents:record.conflict?[record.revision.id]:record.heads.map(r=>r.id),heads:record.heads,revision:record.revision,firstEditedAt:record.firstEditedAt,generation:0};}
 const organizing=()=>[...state.docs.values()].some(doc=>doc.organizing);
@@ -39,7 +44,7 @@ function updateStatus(data){
   if(s.running)text=(s.phase||'正在同步')+(s.total?` ${s.current}/${s.total}`:'');
   else if(s.lastError)text='同步未完成 · '+s.lastError;
   else if(!state.config?.primary&&!state.config?.secondary)text='尚未设置同步 · 本地可用';
-  else if(s.pendingRecords||s.pendingPhotos||s.missingPhotos||s.pendingDownloads||s.pendingDevice)text=`待上传 ${s.pendingRecords||0} 个版本、${s.pendingPhotos||0} 张图片`+(s.pendingDownloads?`；${s.pendingDownloads} 个版本待下载`:'')+(s.missingPhotos?`；${s.missingPhotos} 张待下载`:'')+(s.pendingDevice?'；设备名待同步':'');
+  else if(s.pendingRecords||s.pendingPhotos||s.missingPhotos||s.pendingDownloads||s.pendingDevice)text=`待上传 ${s.pendingRecords||0} 条记录、${s.pendingPhotos||0} 张图片`+(s.pendingDownloads?`；${s.pendingDownloads} 条记录待下载`:'')+(s.missingPhotos?`；${s.missingPhotos} 张待下载`:'')+(s.pendingDevice?'；设备名待同步':'');
   else text=s.lastSync?'同步完成 · '+stamp(s.lastSync):'等待首次同步';
   $('#sync-mini').textContent=text;$('#conflict-button').hidden=!s.conflicts;$('#conflict-button').textContent=s.conflicts+' 处内容需要比较';
   if($('#mobile-sync-state')){$('#mobile-sync-state').textContent=text;$('#mobile-sync-button').disabled=!!s.running;$('#mobile-sync-button').textContent=s.running?'↻ 同步中':'↻ 同步';$('#mobile-conflict-button').hidden=!s.conflicts;$('#mobile-conflict-button').textContent=s.conflicts+' 处内容需要比较';}
@@ -63,7 +68,7 @@ function blockHTML(b,docId,index,editable=true){
   const placeholder=docId.endsWith('intent')?'输入今天的打算…':'输入日记…';
   return `<div class="block ${b.kind==='check'&&b.checked?'checked':''}" data-block="${esc(b.id)}">${b.kind==='check'?`<input type="checkbox" ${b.checked?'checked':''} data-check="${esc(b.id)}" data-doc="${esc(docId)}" aria-label="标记完成">`:''}<div ${editable?'contenteditable="plaintext-only"':''} class="editable" data-doc="${esc(docId)}" data-id="${esc(b.id)}" data-placeholder="${index===0?placeholder:'继续写…'}" spellcheck="false">${esc(b.text)}</div>${controls}</div>`;
 }
-function editorHTML(doc,kind){return `<section class="card editor-card ${kind}"><div class="editor-title"><div><h2>${kind==='intent'?'今天的打算':'当天日记'}</h2></div><button class="quiet" data-action="versions" data-doc="${esc(doc.entityId)}">历史版本</button></div><div class="record-meta" data-doc-meta="${esc(doc.entityId)}">${docMeta(doc)}</div><div class="toolbar" data-toolbar="${esc(doc.entityId)}"><button data-action="insert-check" data-doc="${esc(doc.entityId)}">☐ 勾选项</button><button data-action="insert-text" data-doc="${esc(doc.entityId)}">＋ 文字</button><button data-action="insert-image" data-doc="${esc(doc.entityId)}">▧ 图片</button><button class="organize-toggle" data-action="organize-toggle" data-doc="${esc(doc.entityId)}" aria-pressed="false" aria-controls="doc-${esc(doc.entityId)}" ${canOrganize(doc)?'':'disabled'}>${organizeIcon('list')}整理段落</button></div><div class="document" id="doc-${esc(doc.entityId)}" data-document="${esc(doc.entityId)}">${doc.blocks.map((b,i)=>blockHTML(b,doc.entityId,i)).join('')}</div></section>`;}
+function editorHTML(doc,kind){return `<section class="card editor-card ${kind}"><div class="editor-title"><div><h2>${kind==='intent'?'今天的打算':'当天日记'}</h2></div><div class="editor-actions"><button class="quiet" data-action="save-version" data-doc="${esc(doc.entityId)}" title="保存一个历史版本（Ctrl+S）">保存版本</button><button class="quiet" data-action="versions" data-doc="${esc(doc.entityId)}">历史版本</button></div></div><div class="record-meta" data-doc-meta="${esc(doc.entityId)}">${docMeta(doc)}</div><div class="toolbar" data-toolbar="${esc(doc.entityId)}"><button data-action="insert-check" data-doc="${esc(doc.entityId)}">☐ 勾选项</button><button data-action="insert-text" data-doc="${esc(doc.entityId)}">＋ 文字</button><button data-action="insert-image" data-doc="${esc(doc.entityId)}">▧ 图片</button><button class="organize-toggle" data-action="organize-toggle" data-doc="${esc(doc.entityId)}" aria-pressed="false" aria-controls="doc-${esc(doc.entityId)}" ${canOrganize(doc)?'':'disabled'}>${organizeIcon('list')}整理段落</button></div><div class="document" id="doc-${esc(doc.entityId)}" data-document="${esc(doc.entityId)}">${doc.blocks.map((b,i)=>blockHTML(b,doc.entityId,i)).join('')}</div></section>`;}
 function readOnlyBlocks(blocks){return blocks.map(b=>b.kind==='text'?`<p>${esc(b.text)}</p>`:b.kind==='check'?`<div class="ref-check ${b.checked?'done':''}"><span>${b.checked?'☑':'☐'}</span><span>${esc(b.text)}</span></div>`:`<img src="${assetURL(b.assetId)}" alt="参考图片"><small>${esc(b.caption)}</small>`).join('');}
 async function renderToday(){
   const data=await api.day(state.date);state.schedule=data.schedule;state.docs.set(data.intent.entityId,asDoc(data.intent));state.docs.set(data.diary.entityId,asDoc(data.diary));
@@ -104,20 +109,25 @@ function showModal(html){$('#modal-content').innerHTML=`<div class="modal-inner"
 function modalHeader(title){return `<div class="modal-header"><h2>${esc(title)}</h2><button data-action="modal-close" aria-label="关闭">×</button></div>`;}
 function redrawDoc(doc,focusId){syncOrganizeMode(doc);const target=$(`[data-document="${doc.entityId}"]`);if(!target)return;target.innerHTML=doc.blocks.map((b,i)=>blockHTML(b,doc.entityId,i)).join('');if(focusId){const el=$(`[data-document="${doc.entityId}"] [contenteditable][data-id="${focusId}"]`);el?.focus();if(el){const range=document.createRange();range.selectNodeContents(el);range.collapse(false);const s=window.getSelection();s.removeAllRanges();s.addRange(range);}}}
 function insertBlocks(docId,newBlocks){
-  const doc=state.docs.get(docId);if(!doc)return;
+  const doc=state.docs.get(docId);if(!doc||!newBlocks.length)return;
   let i=doc.blocks.findIndex(b=>b.id===state.active?.blockId&&state.active?.docId===docId);if(i<0)i=doc.blocks.length-1;
-  const b=doc.blocks[i],sel=window.getSelection();let tail=null;
+  const b=doc.blocks[i],sel=window.getSelection();let tail=null,atStart=false;
   if(b&&b.kind!=='image'&&sel.rangeCount){const node=$(`[data-document="${docId}"] [data-id="${b.id}"]`);if(node?.contains(sel.focusNode)){
     const r=document.createRange();r.selectNodeContents(node);r.setEnd(sel.focusNode,sel.focusOffset);
-    // Range.toString omits visual newlines between contenteditable DIVs.
-    // Read a rendered clone so the offset uses exactly the same text as saving.
     const probe=document.createElement('div');probe.style.cssText='position:fixed;left:-100000px;top:0;white-space:pre-wrap;';probe.append(r.cloneContents());document.body.append(probe);let prefix=probe.innerText.replace(/\r/g,'');probe.remove();
     b.text=node.innerText.replace(/\r/g,'');while(prefix.endsWith('\n')&&!b.text.startsWith(prefix))prefix=prefix.slice(0,-1);
-    const offset=b.text.startsWith(prefix)?prefix.length:b.text.length;tail={id:uid(),kind:'text',text:b.text.slice(offset)};b.text=b.text.slice(0,offset);
+    const offset=b.text.startsWith(prefix)?prefix.length:b.text.length;
+    if(offset===0&&b.text.length)atStart=true;
+    else if(offset<b.text.length){tail={id:uid(),kind:'text',text:b.text.slice(offset)};b.text=b.text.slice(0,offset);}
   }}
-  const after=tail||{id:uid(),kind:'text',text:''};doc.blocks.splice(i+1,0,...newBlocks,after);mark(doc);redrawDoc(doc,newBlocks[0].kind==='image'?after.id:newBlocks[0].id);
+  const images=newBlocks.some(b=>b.kind==='image'),replaceEmpty=images&&b?.kind==='text'&&!b.text;
+  const at=atStart||replaceEmpty?i:i+1,added=[...newBlocks];if(tail)added.push(tail);
+  doc.blocks.splice(Math.max(0,at),replaceEmpty?1:0,...added);
+  let focusId=newBlocks[0].id;
+  if(images){const next=doc.blocks[at+newBlocks.length];if(next?.kind==='text')focusId=next.id;else{const after={id:uid(),kind:'text',text:''};doc.blocks.splice(at+newBlocks.length,0,after);focusId=after.id;}}
+  mark(doc);redrawDoc(doc,focusId);
 }
-async function insertImages(docId,files){for(const file of files){const bytes=new Uint8Array(await file.arrayBuffer());const a=await api.addImage(bytes);insertBlocks(docId,[{id:uid(),kind:'image',assetId:a.assetId,caption:''}]);}}
+async function insertImages(docId,files){const blocks=[];for(const file of files){const bytes=new Uint8Array(await file.arrayBuffer());const a=await api.addImage(bytes);blocks.push({id:uid(),kind:'image',assetId:a.assetId,caption:''});}insertBlocks(docId,blocks);}
 async function openPlan(id){
   await flush();let record;if(id)record=(await api.plans()).find(x=>x.entityId===id);
   state.planDraft=record?{entityId:id,parents:record.conflict?[record.revision.id]:record.heads.map(r=>r.id),payload:structuredClone(record.revision.payload)}:{entityId:'plan:'+uid(),parents:[],payload:{kind:'once',title:'',date:state.date,time:'',content:'',weekdays:[],startDate:state.date,endDate:'',weekContent:{},lessons:[{id:uid(),date:state.date,title:'第1课',content:'',time:''}]}};
@@ -136,11 +146,11 @@ function renderPlanForm(){
 async function scheduleDetail(index){const p=state.schedule[index];showModal(modalHeader(p.title)+`<div class="plan-detail-meta">${p.date} · ${weekday(p.date)}${p.time?' · '+esc(p.time):''}</div><div class="content-preview">${esc(p.content||'暂无具体内容')}</div><div class="modal-footer"><button class="secondary" data-action="schedule-copy" data-index="${index}">追加到另一天</button><button class="primary" data-action="plan-edit" data-id="${esc(p.entityId)}">编辑计划</button></div>`);}
 async function scheduleCopy(index){const p=state.schedule[index];showModal(modalHeader('追加到另一天')+`<p class="muted" style="font-size:13px">原来的日期记录保留，另加一次这项安排。</p><label class="field">${esc(p.title)}<input id="copy-plan-date" type="date" value="${today()}"></label><div class="modal-footer"><button class="secondary" data-action="modal-close">取消</button><button class="primary" data-action="schedule-copy-save" data-index="${index}">添加安排</button></div>`);}
 function versionPreview(r){if(r.deleted)return '此版本已删除内容';if(r.entityId.startsWith('note:'))return r.payload.blocks.map(b=>b.kind==='image'?'[图片] '+b.caption:(b.kind==='check'?(b.checked?'☑ ':'☐ '):'')+b.text).join('\n');const p=r.payload;return p.title+'\n'+planSummary(p)+'\n'+(p.content||Object.values(p.weekContent||{}).join('\n')||p.lessons?.map(l=>l.date+' '+l.title+'\n'+l.content).join('\n'));}
-async function versions(id){await flush();const list=await api.versions(id);state.versionTarget=id;state.versionList=list;showModal(modalHeader('历史版本')+(list.length?list.map(r=>`<section class="version ${r.current?'current-version':''}"><small>${r.current?'当前内容 · ':''}${esc(fullStamp(r.timestamp))} · ${esc(deviceLabel(r))}${r.current?'':` · ${r.deleted?'已删除':'修改前的版本'}`}</small><div class="content-preview">${esc(versionPreview(r))}</div>${r.current?'':`<button class="secondary" data-action="version-restore" data-id="${r.id}">恢复为当前内容</button>`}</section>`).join(''):'<p class="muted">修改或删除原有内容后，这里会保留可恢复的版本。</p>'));}
+async function versions(id){await flush();const list=await api.versions(id);state.versionTarget=id;state.versionList=list;showModal(modalHeader('历史版本')+(list.length?list.map(r=>`<section class="version ${r.current?'current-version':''}"><small>${r.current?'当前内容 · '+(r.saved?'已保存版本 · ':'自动保存 · '):''}${esc(fullStamp(r.timestamp))} · ${esc(deviceLabel(r))}${r.current?'':` · ${r.deleted?'已删除':r.saved?'手动保存的版本':'旧版保留的版本'}`}</small><div class="content-preview">${esc(versionPreview(r))}</div>${r.current?'':`<button class="secondary" data-action="version-restore" data-id="${r.id}">恢复为当前内容</button>`}</section>`).join(''):'<p class="muted">点击“保存版本”保留历史，电脑也可按 Ctrl+S。</p>'));}
 async function getRecord(id){if(id.startsWith('note:')){const [,day,kind]=id.split(':');return(await api.day(day))[kind];}return(await api.plans()).find(x=>x.entityId===id);}
 async function conflictList(){await flush();const all=[];for(const d of await api.history())if(d.conflict){const data=await api.day(d.date);for(const k of ['intent','diary'])if(data[k].conflict)all.push({id:data[k].entityId,title:d.date+' · '+(k==='intent'?'打算':'日记')});}for(const p of await api.plans())if(p.conflict)all.push({id:p.entityId,title:p.revision.payload?.title||'已停止的计划'});showModal(modalHeader('需要比较的内容')+(all.length?all.map(x=>`<button class="upcoming-row" data-action="conflict-open" data-id="${esc(x.id)}">${esc(x.title)}<span class="muted" style="margin-left:auto">比较 →</span></button>`).join(''):'<p class="muted">当前没有不同设备分别修改的内容。</p>'));}
 async function conflictOpen(id){await flush();const record=await getRecord(id);if(!record?.conflict){toast('这条内容目前没有冲突。');return;}state.conflictRecord=record;showModal(modalHeader('比较不同版本')+`<p class="muted" style="font-size:12px">两端分别修改的内容都保留了。选择一个作为当前内容，其他版本仍留在历史里。</p>`+record.conflictHeads.map(r=>`<section class="version"><small>${esc(fullStamp(r.timestamp))} · ${esc(deviceLabel(r))}</small><div class="content-preview">${esc(versionPreview(r))}</div><button class="secondary" data-action="conflict-pick" data-id="${r.id}">选用此版本</button></section>`).join('')+(id.startsWith('note:')?`<div class="modal-footer"><button class="primary" data-action="conflict-combine">合并以上正文</button></div>`:''));}
-async function resolved(r,record){await api.save({entityId:record.entityId,payload:r.payload,deleted:r.deleted,parents:record.heads.map(x=>x.id)});$('#modal').close();await render();toast('当前版本已更新，其余版本保留在历史中。');}
+async function resolved(r,record){await api.save({entityId:record.entityId,payload:r.payload,deleted:r.deleted,parents:record.heads.map(x=>x.id),historyMode:'manual'});$('#modal').close();await render();toast('当前版本已更新，其余版本保留在历史中。');}
 document.addEventListener('focusin',e=>{if(e.target.matches('[contenteditable]'))state.active={docId:e.target.dataset.doc,blockId:e.target.dataset.id};});
 document.addEventListener('mousedown',e=>{if(e.target.closest('[data-toolbar]')||e.target.closest('[data-action="carry-selection"]'))e.preventDefault();});
 document.addEventListener('selectionchange',()=>{const sel=window.getSelection();if(sel.anchorNode&&$('#reference-copy')?.contains(sel.anchorNode)&&sel.toString().trim())state.refSelection=sel.toString();});
@@ -170,7 +180,7 @@ document.addEventListener('click',async e=>{
     if(action==='ref-prev'||action==='ref-next'){state.refDate=shift(state.refDate,action==='ref-prev'?-1:1);await renderReference();}
     if(action==='carry-selection'){const text=state.refSelection.trim();if(!text){toast('先在参考内容里选中想带入的文字。');return;}const doc=state.docs.get('note:'+state.date+':intent');doc.blocks.push({id:uid(),kind:'text',text});mark(doc);redrawDoc(doc,doc.blocks.at(-1).id);toast('已追加到今天，旧记录保留。');}
     if(action==='insert-text')insertBlocks(b.dataset.doc,[{id:uid(),kind:'text',text:''}]);if(action==='insert-check')insertBlocks(b.dataset.doc,[{id:uid(),kind:'check',text:'',checked:false}]);
-    if(action==='insert-image'){await flush();const images=await api.pickImages({entityId:b.dataset.doc});for(const a of images)insertBlocks(b.dataset.doc,[{id:uid(),kind:'image',assetId:a.assetId,caption:''}]);await flush();if(api.ackImages)await api.ackImages();}
+    if(action==='insert-image'){await flush();const images=await api.pickImages({entityId:b.dataset.doc});insertBlocks(b.dataset.doc,images.map(a=>({id:uid(),kind:'image',assetId:a.assetId,caption:''})));await flush();if(api.ackImages)await api.ackImages();}
     if(action==='organize-toggle'){const doc=state.docs.get(b.dataset.doc);if(doc&&canOrganize(doc)){doc.organizing=!doc.organizing;redrawDoc(doc);b.focus();}}
     if(action==='block-remove'||action==='block-up'){const doc=state.docs.get(b.dataset.doc);if(!doc?.organizing)return;const i=doc.blocks.findIndex(x=>x.id===b.dataset.id);if(i<0||(action==='block-up'&&i===0))return;let focusId=b.dataset.id;if(action==='block-remove'){doc.blocks.splice(i,1);if(!doc.blocks.length)doc.blocks.push({id:uid(),kind:'text',text:''});focusId=doc.blocks[Math.min(i,doc.blocks.length-1)].id;}else [doc.blocks[i-1],doc.blocks[i]]=[doc.blocks[i],doc.blocks[i-1]];state.active=null;mark(doc);redrawDoc(doc);const focus=$(`[data-document="${doc.entityId}"] [data-action="${action}"][data-id="${focusId}"]:not(:disabled)`)||$(`[data-action="organize-toggle"][data-doc="${doc.entityId}"]:not(:disabled)`);focus?.focus();}
     if(action==='sync'){await flush();try{const s=await api.sync();updateStatus(s);if(s.pendingRecords||s.pendingPhotos||s.missingPhotos||s.pendingDownloads||s.pendingDevice)toast('本次同步已结束，还有内容等待下一次同步。');else toast(s.conflicts?'同步完成，有不同版本需要比较。':'文字和图片均已同步完成。');if(state.page==='today'&&!dirty.size&&!organizing()&&!document.activeElement?.matches('[contenteditable],.caption-input'))await renderToday();else if(state.page==='history'||state.page==='plans')await render();}catch(err){toast(err.message);}}
@@ -181,6 +191,7 @@ document.addEventListener('click',async e=>{
     if(action==='plan-delete'){const r=(await api.plans()).find(x=>x.entityId===b.dataset.id);if(confirm('停止此计划？今后的安排会移除，过去的版本仍然保留。')){await api.save({entityId:r.entityId,parents:r.heads.map(x=>x.id),deleted:true,payload:null});await renderPlans();}}
     if(action==='schedule-detail')await scheduleDetail(+b.dataset.index);if(action==='schedule-copy')await scheduleCopy(+b.dataset.index);
     if(action==='schedule-copy-save'){const p=state.schedule[+b.dataset.index];await api.save({entityId:'plan:'+uid(),parents:[],payload:{kind:'once',title:p.title,date:$('#copy-plan-date').value,time:p.time,content:p.content}});$('#modal').close();toast('已添加到另一天，原来的安排保留。');await render();}
+    if(action==='save-version')await saveVersion(b.dataset.doc);
     if(action==='versions')await versions(b.dataset.doc);if(action==='version-restore'){const r=state.versionList.find(x=>x.id===b.dataset.id),current=await getRecord(state.versionTarget);await resolved(r,current);}
     if(action==='conflicts')await conflictList();if(action==='conflict-open')await conflictOpen(b.dataset.id);if(action==='conflict-pick')await resolved(state.conflictRecord.heads.find(r=>r.id===b.dataset.id),state.conflictRecord);
     if(action==='conflict-combine'){const blocks=[];for(const r of state.conflictRecord.conflictHeads)if(!r.deleted){blocks.push({id:uid(),kind:'text',text:'【'+stamp(r.timestamp)+' 的版本】'});blocks.push(...r.payload.blocks.map(x=>({...x,id:uid()})));}await resolved({payload:{blocks},deleted:false},state.conflictRecord);}
@@ -196,7 +207,7 @@ if(completed&&data.receivedRecords&&state.page==='today'){
   if(!dirty.size&&!flushing&&!organizing()&&!$('#modal').open&&!document.activeElement?.matches('[contenteditable],.caption-input'))renderToday().catch(e=>toast(e.message));
   else{state.remoteUpdate=true;if(!$('#remote-update')){const button=document.createElement('button');button.id='remote-update';button.className='remote-update';button.dataset.action='refresh-day';button.textContent='收到其他设备的内容 · 点击查看';$('.page-header')?.append(button);}}
 }});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#modal').open&&finishOrganizing()){e.preventDefault();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();flush().then(()=>toast('已保存在本机。')).catch(err=>toast(err.message));}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#modal').open&&finishOrganizing()){e.preventDefault();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(e.repeat)return;const form=$('#plan-form');if(form){form.requestSubmit();return;}saveVersion().catch(err=>toast(err.message));}});
 window.addEventListener('riye-pause',()=>{clearTimeout(saveTimer);flush().catch(e=>toast(e.message));});
 window.addEventListener('riye-reload',()=>flush().then(render).catch(e=>toast(e.message)));
 window.addEventListener('riye-back',async()=>{try{if($('#modal').open){$('#modal').close();return;}if(finishOrganizing())return;if(state.page!=='today'){await navigate('today');return;}await flush();await api.closeReady();}catch(e){toast(e.message);}});

@@ -3,6 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {Store}=require('../core/store.cjs');
 const {uuid,validateGraph}=require('../core/model.cjs');
 const {onlyAdds}=require('../core/history.cjs');
+const {readZip,makeZip}=require('../core/zip.cjs');
 const roots=[];test.after(()=>{for(const root of roots)fs.rmSync(root,{recursive:true,force:true});});
 const note='note:2026-10-18:diary',text=value=>({id:uuid(),kind:'text',text:value});
 function store(){const root=fs.mkdtempSync(path.join(os.tmpdir(),'riye-history-'));roots.push(root);return new Store(root);}
@@ -59,4 +60,42 @@ test('unchanged future plans are no-ops while deleting an empty note remains a d
  const s=store(),entityId='plan:'+uuid(),payload={kind:'once',title:'虚构安排',date:'2030-01-02',time:'',content:''};
  const plan=s.save({entityId,parents:[],payload}).revision;assert.equal(s.save({entityId,parents:[plan.id],payload}).revision.id,plan.id);
  const empty=save(s,[text('')]);const removed=save(s,null,{deleted:true,payload:null});assert.notEqual(removed.id,empty.id);assert(s.get(note).revision.deleted);
+});
+test('typing, rewrites and backspacing stay drafts until an explicit manual checkpoint',()=>{
+ const s=store(),draft=value=>save(s,[text(value)],{historyMode:'draft'});
+ for(const value of ['第一稿','第二稿','第','重新写的一整段']){draft(value);assert.equal(s.versions(note).length,1);assert.equal(s.checkpointList(note).filter(c=>c.kind==='save').length,0);}
+ const first=s.get(note).revision,count=s.revisions.size,firstTime=s.get(note).firstEditedAt;
+ assert(s.checkpoint({entityId:note,revisionId:first.id}).created);assert.equal(s.revisions.size,count);
+ for(let i=0;i<15;i++){draft('改写 '+i);assert.equal(s.versions(note).length,2);}
+ const last=s.get(note).revision;assert(s.checkpoint({entityId:note,revisionId:last.id}).created);
+ assert(!s.checkpoint({entityId:note,revisionId:last.id}).created);assert.equal(s.checkpointList(note).filter(c=>c.kind==='save').length,2);
+ assert.equal(s.versions(note).length,2);assert(s.versions(note).find(r=>r.id===first.id).saved);
+ const reopened=new Store(s.root);assert.equal(reopened.checkpointList(note).filter(c=>c.kind==='save').length,2);assert.equal(reopened.versions(note).length,2);assert.equal(reopened.get(note).firstEditedAt,firstTime);
+ draft('改写 14，继续追加');assert.equal(s.checkpointList(note).filter(c=>c.kind==='save').length,2);
+ assert(s.checkpoint({entityId:note,revisionId:s.get(note).revision.id}).created);assert.equal(s.versions(note).length,3);
+});
+test('manual history survives backups without changing legacy revision bytes',()=>{
+ const s=store(),a=save(s,[text('手动保存的正文')],{historyMode:'manual'});save(s,[text('自动保存的改写')],{historyMode:'draft'});
+ const restored=store();restored.restoreBackup(s.backupBuffer());assert.equal(restored.checkpointList(note).filter(c=>c.kind==='save').length,1);
+ assert.deepEqual(restored.revisions.get(a.id),a);assert(restored.versions(note).some(r=>r.saved&&r.id===a.id));
+ save(restored,[text('恢复后继续自动编辑')],{historyMode:'draft'});assert.equal(restored.versions(note).length,2);
+ assert.deepEqual(Object.keys(a).sort(),['schema','id','entityId','deviceId','parents','timestamp','effectiveDate','deleted','payload'].sort());
+});
+test('invalid checkpoint references in backups are rejected before changing any records',()=>{
+ const s=store();save(s,[text('备份里的虚构内容')],{historyMode:'manual'});const entries=readZip(s.backupBuffer()),manifest=JSON.parse(entries.get('manifest.json'));
+ manifest.history[0].revisionId=uuid();entries.set('manifest.json',Buffer.from(JSON.stringify(manifest)));
+ const target=store();save(target,[text('当前虚构内容')],{historyMode:'manual'});const before=JSON.stringify([...target.revisions.values()]),events=JSON.stringify(target.checkpointList());
+ assert.throws(()=>target.restoreBackup(makeZip([...entries])),/保存点/);assert.equal(JSON.stringify([...target.revisions.values()]),before);assert.equal(JSON.stringify(target.checkpointList()),events);
+});
+test('legacy recovery points remain stable after switching to manual history',()=>{
+ const s=store();save(s,[text('旧版原文')]);save(s,[text('旧版改写')]);save(s,[text('新版草稿')],{historyMode:'draft'});
+ const count=s.versions(note).length;for(let i=0;i<10;i++)save(s,[text('后续草稿 '+i)],{historyMode:'draft'});
+ assert.equal(s.versions(note).length,count);assert(s.versions(note).some(r=>r.payload.blocks[0].text==='旧版原文'));assert(s.versions(note).some(r=>r.payload.blocks[0].text==='旧版改写'));
+});
+test('clearing a note is a meaningful manual save while an untouched empty note creates no checkpoint',()=>{
+ const s=store(),empty=save(s,[text('')],{historyMode:'draft'});assert(!s.checkpoint({entityId:note,revisionId:empty.id}).created);
+ save(s,[text('保留的手动正文')],{historyMode:'manual'});const blank=save(s,[text('')],{historyMode:'draft'});assert.equal(s.checkpointList(note).filter(c=>c.kind==='save').length,1);
+ assert(s.checkpoint({entityId:note,revisionId:blank.id}).created);assert(!s.checkpoint({entityId:note,revisionId:blank.id}).created);
+ assert.equal(s.versions(note).length,2);assert(s.versions(note).find(r=>r.id===blank.id).saved);assert(s.versions(note).find(r=>r.id===blank.id).current);
+ assert.equal(s.checkpointList(note).filter(c=>c.kind==='save').length,2);
 });

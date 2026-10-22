@@ -47,6 +47,7 @@ PLAYWRIGHT_MODULE=<playwright路径> node tests/conflict-ui.cjs
 PLAYWRIGHT_MODULE=<playwright路径> node tests/mobile-ui.cjs
 PLAYWRIGHT_MODULE=<playwright路径> node tests/organize-ui.cjs
 PLAYWRIGHT_MODULE=<playwright路径> node tests/history-ui.cjs
+PLAYWRIGHT_MODULE=<playwright路径> node tests/manual-save-ui.cjs
 ```
 
 UI 检查需要 `.runtime/linux/electron`，可通过 `scripts/get-runtime.py` 获取，启动使用无界面模式。移动 UI 检查使用 Electron 内的原生接口替身，验证共享移动 bundle，不替代真实安卓运行测试。
@@ -87,3 +88,7 @@ python3 scripts/package.py --source-only
 主分支的专用工作流重新构建并验证 Windows 和源码包。Android 安装包由持有原更新签名的构建主机预先签名，上传为未加入源码树的公开 Git blob；`releases/0.1.4.json` 固定二进制哈希及全部应用构建输入。工作流逐字节比对 APK 中的共享界面资源和当前构建、校验 classes.dex，并核对所有发布附件的 SHA-256 后发布试用版。更新私钥与密码不会上传 GitHub。
 
 工作流仅处理 0.1.4，已有标签必须指向当前提交；已公开版本只检查，不覆盖附件。发布脚本可用 `python3 scripts/publish_014.py --verify-only` 离线核对本地构建，不创建标签或发布。
+
+## 手动历史保存
+
+0.1.6 起，普通编辑以草稿保存。只有 Ctrl+S、“保存版本”或明确恢复历史时确认保存点。原 schema 1 记录字节格式保持不变，保存点另存于数据目录的 checkpoints/，按依赖顺序在 WebDAV 同名目录中同步。完整备份将保存点写入 manifest.json 的可选 history 数组，安卓原生流式 ZIP 保留同一字段。旧版继续读取原记录，建议所有设备一起升级以显示手动保存点。

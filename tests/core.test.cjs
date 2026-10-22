@@ -6,6 +6,32 @@ test.after(()=>{for(const p of roots)fs.rmSync(p,{recursive:true,force:true});})
 const block=text=>({id:uuid(),kind:'text',text});const note='note:2026-10-14:diary';
 function write(s,text,entityId=note,parents=s.get(entityId).heads.map(r=>r.id)){return s.save({entityId,parents,payload:{blocks:[block(text)]}}).revision;}
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwYQAAAAASUVORK5CYII=','base64');
+
+test('manual checkpoints synchronize while automatic rewrites remain drafts on both devices',async()=>{
+ const dav=await server();try{const a=store(),b=store(),draft=(s,text)=>s.save({entityId:note,parents:s.get(note).heads.map(r=>r.id),payload:{blocks:[block(text)]},historyMode:'draft'}).revision;
+ draft(a,'第一份草稿');draft(a,'改写草稿');await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);assert.equal(b.versions(note).length,1);
+ a.checkpoint({entityId:note,revisionId:a.get(note).revision.id});await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);assert(b.versions(note)[0].saved);
+ for(let i=0;i<3;i++){draft(b,'手机改写 '+i);await new Sync(b).run(dav.config);await new Sync(a).run(dav.config);assert.equal(a.versions(note).length,2);assert.equal(a.checkpointList(note).filter(c=>c.kind==='save').length,1);}
+ b.checkpoint({entityId:note,revisionId:b.get(note).revision.id});await new Sync(b).run(dav.config);await new Sync(a).run(dav.config);
+ assert.equal(a.checkpointList(note).filter(c=>c.kind==='save').length,2);assert.equal(a.status().pendingRecords,0);assert.equal(b.status().pendingRecords,0);assert.equal(a.versions(note).length,2);
+ assert.deepEqual(new Store(a.root).versions(note),a.versions(note));
+ }finally{await dav.close();}
+});
+test('a partial checkpoint PUT is repaired on retry and a valid changed marker is never overwritten',async()=>{
+ const dav=await server();try{const a=store();a.save({entityId:note,parents:[],payload:{blocks:[block('手动版本')]},historyMode:'manual'});dav.control.partialOnce='checkpoints';
+ await assert.rejects(new Sync(a).run(dav.config));assert(a.status().pendingRecords>0);await new Sync(a).run(dav.config);assert.equal(a.status().pendingRecords,0);
+ const c=a.checkpointList(note).find(c=>c.kind==='save'),remote=[...dav.files.keys()].find(k=>k.endsWith('/checkpoints/'+c.id+'.json')),changed=Buffer.from(JSON.stringify({...c,timestamp:'2099-01-01T00:00:00.000Z'}));dav.files.set(remote,changed);a.updateRemote({checkpoints:[]});
+ await assert.rejects(new Sync(a).run(dav.config),/保存点写入校验/);assert(dav.files.get(remote).equals(changed));
+ }finally{await dav.close();}
+});
+test('checkpoints created during upload stay queued with their revision until the next synchronization',async()=>{
+ const dav=await server();try{const a=store();a.save({entityId:note,parents:[],payload:{blocks:[block('最初草稿')]},historyMode:'draft'});let late;
+ dav.control.afterPut=async p=>{if(!late&&p.includes('/revisions/')){late=a.save({entityId:note,parents:a.get(note).heads.map(r=>r.id),payload:{blocks:[block('传输中手动保存')]},historyMode:'manual'}).revision;}};
+ await new Sync(a).run(dav.config);assert(a.status().pendingRecords>0);assert(![...dav.files.keys()].some(k=>k.endsWith('/revisions/'+late.id+'.json')));
+ assert(![...dav.files.values()].some(v=>{try{return JSON.parse(v).kind==='save';}catch{return false;}}));
+ dav.control.afterPut=null;await new Sync(a).run(dav.config);const b=store();await new Sync(b).run(dav.config);assert.equal(b.get(note).revision.id,late.id);assert(b.versions(note)[0].saved);assert.equal(a.status().pendingRecords,0);
+ }finally{await dav.close();}
+});
 test('idle synchronization and repeated unchanged saves create no revisions; additions stay out of history on both peers',async()=>{
  const dav=await server();try{const a=store(),b=store();write(a,'测试正文');write(a,'测试正文追加一句');
  await new Sync(a).run(dav.config);await new Sync(b).run(dav.config);const count=a.revisions.size;

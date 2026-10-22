@@ -1,6 +1,7 @@
 'use strict';
 const {uuid,validateRevision,validateGraph,assetsOf,validateDevice}=require('./model.cjs');
 const crypto=require('node:crypto');
+const {validateCheckpoint}=require('./history.cjs');
 function normalizeConfig(raw){
   const syncIntervalMinutes=raw.syncIntervalMinutes===undefined?5:Number(raw.syncIntervalMinutes);
   if(![5,10,15,30,60,120,240,360,480,720,1440].includes(syncIntervalMinutes))throw Error('请选择 5 分钟至 24 小时内的自动同步间隔');
@@ -42,7 +43,7 @@ class Dav{
     if(!this.root)await this.connect();const u=new URL(this.root),segments=u.pathname.split('/').filter(Boolean);let p='';
     const ensureDir=async url=>{const current=await this.request('PROPFIND',url,{headers:{Depth:'0','Content-Type':'application/xml'},body:'<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',accept:[200,207,404]});if(current.status===404)await this.request('MKCOL',url,{accept:[200,201,204,405]});};
     for(const seg of segments){p+='/'+seg;await ensureDir(u.origin+p+'/');}
-    for(const dir of ['revisions','assets','devices'])await ensureDir(this.root+dir+'/');
+    for(const dir of ['revisions','assets','devices','checkpoints'])await ensureDir(this.root+dir+'/');
   }
   async list(dir){const url=this.root+dir+'/';const r=await this.request('PROPFIND',url,{headers:{Depth:'1','Content-Type':'application/xml'},body:'<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>',limit:32*1024*1024});return listing(r.body.toString('utf8'),url);}
   async get(file,max=128*1024*1024){return(await this.request('GET',this.root+file,{limit:max})).body;}
@@ -68,11 +69,13 @@ class Sync{
       const existingDevice=await dav.request('GET',dav.root+deviceFile,{accept:[200,404],limit:10000});
       let ownRemote=null;if(existingDevice.status===200)try{ownRemote=validateDevice(JSON.parse(existingDevice.body));}catch{}
       if(JSON.stringify(ownRemote)!==JSON.stringify(own)){await dav.put(deviceFile,JSON.stringify(own),true);const check=validateDevice(JSON.parse(await dav.get(deviceFile,10000)));if(JSON.stringify(check)!==JSON.stringify(own))throw Error('设备名称写入校验失败，请重试');}
-      const confirmedRecords=new Set(store.remote.revisions||[]),confirmedAssets=new Set(store.remote.assets||[]),received=new Set();
-      let remoteIds=[],remoteAssets=new Set();
+      const confirmedRecords=new Set(store.remote.revisions||[]),confirmedAssets=new Set(store.remote.assets||[]),confirmedCheckpoints=new Set(store.remote.checkpoints||[]),received=new Set(),receivedCheckpoints=new Set();
+      let remoteIds=[],remoteAssets=new Set(),remoteCheckpoints=new Set();
       const pull=async()=>{
+        remoteCheckpoints=new Set((await dav.list('checkpoints')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5)));
+        const events=[];for(const id of remoteCheckpoints)if(!store.checkpoints.has(id)){const c=validateCheckpoint(JSON.parse(await dav.get('checkpoints/'+id+'.json',10000)));if(c.id!==id)throw Error('远程历史保存点编号不匹配');events.push(c);}
         remoteIds=(await dav.list('revisions')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5));
-        const incoming=new Map(),needed=remoteIds.filter(id=>!store.revisions.has(id)),queued=new Set(needed);
+        const incoming=new Map(),needed=[...new Set([...remoteIds,...events.map(c=>c.revisionId)])].filter(id=>!store.revisions.has(id)),queued=new Set(needed);
         for(let i=0;i<needed.length;i++){
           progress('下载文字',i+1,needed.length);const id=needed[i],r=validateRevision(JSON.parse(await dav.get('revisions/'+id+'.json',4*1024*1024)));
           if(r.id!==id)throw Error('远程记录校验失败');incoming.set(id,r);
@@ -80,7 +83,9 @@ class Sync{
           for(const parent of r.parents)if(!store.revisions.has(parent)&&!queued.has(parent)){queued.add(parent);needed.push(parent);}
         }
         validateGraph([...store.revisions.values(),...incoming.values()]);
+        for(const c of events)if((incoming.get(c.revisionId)||store.revisions.get(c.revisionId))?.entityId!==c.entityId)throw Error('远程历史保存点缺少对应记录');
         for(const r of incoming.values()){store.importRevision(r);confirmedRecords.add(r.id);received.add(r.id);}
+        for(const c of events){store.importCheckpoint(c);confirmedCheckpoints.add(c.id);receivedCheckpoints.add(c.id);}
         remoteAssets=new Set((await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4)));
         const photos=[...new Set([...store.revisions.values()].flatMap(assetsOf))].filter(id=>!store.hasAsset(id));
         for(let i=0;i<photos.length;i++){progress('下载照片',i+1,photos.length);const id=photos[i];if(!remoteAssets.has(id))throw Error('远程记录引用的图片还未上传，请稍后重试');store.importAsset(id,await dav.get('assets/'+id+'.bin',50*1024*1024));confirmedAssets.add(id);}
@@ -89,7 +94,7 @@ class Sync{
       await pull();
       // Freeze one outgoing snapshot so an edit made mid-transfer cannot publish
       // a revision before its new image or parent has reached the server.
-      const snapshot=validateGraph([...store.revisions.values()]),uploads=store.assetIds().filter(id=>!remoteAssets.has(id)||!confirmedAssets.has(id));
+      const snapshot=validateGraph([...store.revisions.values()]),snapshotIds=new Set(snapshot.map(r=>r.id)),checkpointSnapshot=store.checkpointList().filter(c=>snapshotIds.has(c.revisionId)),uploads=store.assetIds().filter(id=>!remoteAssets.has(id)||!confirmedAssets.has(id));
       for(let i=0;i<uploads.length;i++){
         progress('上传照片',i+1,uploads.length);const id=uploads[i],file='assets/'+id+'.bin',data=store.readAsset(id);const result=await dav.put(file,data);
         let actual=await dav.get(file,50*1024*1024);
@@ -112,6 +117,12 @@ class Sync{
         }
         if(data!==JSON.stringify(verified))throw Error('远程记录写入校验失败');remoteSet.add(r.id);confirmedRecords.add(r.id);
       }
+      // Publish history markers after their immutable revisions and photos.
+      for(const c of checkpointSnapshot)if(!remoteCheckpoints.has(c.id)||!confirmedCheckpoints.has(c.id)){
+        const file='checkpoints/'+c.id+'.json',data=JSON.stringify(c),result=await dav.put(file,data);let verified;
+        try{verified=validateCheckpoint(JSON.parse(await dav.get(file,10000)));}catch(e){if(result.status!==412)throw e;await dav.put(file,data,true);verified=validateCheckpoint(JSON.parse(await dav.get(file,10000)));}
+        if(data!==JSON.stringify(verified))throw Error('远程历史保存点写入校验失败');confirmedCheckpoints.add(c.id);
+      }
       // A second device may have uploaded since our first listing. Pull again,
       // with a bound so continuous remote typing cannot keep this run alive forever.
       for(let round=0;round<2;round++)await pull();
@@ -122,11 +133,12 @@ class Sync{
       }
       const finalRecords=(await dav.list('revisions')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5));
       const finalAssets=(await dav.list('assets')).filter(n=>/^[a-f0-9]{64}\.bin$/.test(n)).map(n=>n.slice(0,-4));
-      const pendingDownloads=finalRecords.filter(id=>!store.revisions.has(id)).length;
+      const finalCheckpoints=(await dav.list('checkpoints')).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>n.slice(0,-5));
+      const pendingDownloads=finalRecords.filter(id=>!store.revisions.has(id)).length+finalCheckpoints.filter(id=>!store.checkpoints.has(id)).length;
       // File names alone never certify a transfer, including interrupted PUTs.
-      store.updateRemote({revisions:finalRecords.filter(id=>confirmedRecords.has(id)),assets:finalAssets.filter(id=>confirmedAssets.has(id)),pendingDownloads,deviceVersion:own.updatedAt,lastError:null});
+      store.updateRemote({revisions:finalRecords.filter(id=>confirmedRecords.has(id)),assets:finalAssets.filter(id=>confirmedAssets.has(id)),checkpoints:finalCheckpoints.filter(id=>confirmedCheckpoints.has(id)),pendingDownloads,deviceVersion:own.updatedAt,lastError:null});
       const pending=store.status();if(!pending.pendingRecords&&!pending.pendingPhotos&&!pending.missingPhotos&&!pending.pendingDownloads&&!pending.pendingDevice)store.updateRemote({lastSync:new Date().toISOString()});
-      store.autoBackup();const status=store.status();this.notify({running:false,phase:'同步结束',receivedRecords:received.size,...status});return status;
+      store.autoBackup();const status=store.status();this.notify({running:false,phase:'同步结束',receivedRecords:received.size+receivedCheckpoints.size,...status});return status;
     }catch(e){store.updateRemote({lastError:e.message});this.notify({running:false,phase:'同步未完成',...store.status()});throw e;}
   }
 }
