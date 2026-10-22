@@ -1,6 +1,6 @@
 # 日页 · Windows 与 Android
 
-源码及本机更新包版本：0.1.6（待发布）。用于每天的打算、日记、照片和具体课次/训练安排。下方下载链接仍指向已发布的 0.1.5。
+版本：0.1.6。用于每天的打算、日记、照片和具体课次/训练安排。
 
 安卓安装与操作见 [ANDROID.md](ANDROID.md)，开发与构建见 [BUILDING.md](BUILDING.md)。Windows 0.1.0 已收到用户试用及 NAS 读写成功反馈；安卓使用同一套记录格式和现有同步目录。
 
@@ -16,8 +16,8 @@
 
 | 平台 | 版本与下载 | 状态 |
 |---|---|---|
-| Windows 10/11 x64 | [v0.1.5](https://github.com/xijue2001/riye/releases/tag/v0.1.5) | 精简历史版本，保留修改前的恢复点 |
-| Android | [v0.1.5](https://github.com/xijue2001/riye/releases/tag/v0.1.5) | 预发布，沿用原更新签名 |
+| Windows 10/11 x64 | [v0.1.6](https://github.com/xijue2001/riye/releases/tag/v0.1.6) | 修复多余空行，Ctrl+S 确认历史版本 |
+| Android | [v0.1.6](https://github.com/xijue2001/riye/releases/tag/v0.1.6) | 预发布，沿用原更新签名 |
 
 历史包保留在[Windows 0.1.0](https://github.com/xijue2001/riye/releases/tag/windows-v0.1.0)与[Android 0.1.0](https://github.com/xijue2001/riye/releases/tag/android-v0.1.0)。
 
@@ -33,7 +33,7 @@
 
 本版面向 Windows 10/11 的 x64 电脑。如果电脑是 ARM 或 32 位，请先告知。
 
-## 0.1.6 更新（待发布）
+## 0.1.6 更新
 
 - “＋文字”每次只新增一段；图片连续插入，不再留下多余空段落。
 - 输入始终自动保存在本机。电脑按 Ctrl+S，或点击打算／日记旁的“保存版本”，才确认一个历史保存点；手机使用同样的按钮。
@@ -67,7 +67,7 @@
 - 日记显示首次记录时间，精确到秒；继续编辑不改变该时间。新版从第一次非空编辑记录，旧日记从最早的非空历史版本恢复，无法补出早于历史记录的真实时间。
 - 同步会在上传后重新检查其他设备的内容；同步中新增的文字与图片一起排队。仍有待处理内容时不会显示全部完成。
 
-建议三端升级到0.1.5。更新前可先导出一次完整备份；Windows用新版解压目录运行，Android用原签名新版APK覆盖安装，均继续使用原本地数据与NAS目录。
+建议三端升级到0.1.6。更新前可先导出一次完整备份；Windows用新版解压目录运行，Android用原签名新版APK覆盖安装，均继续使用原本地数据与NAS目录。
 
 ## 计划怎样显示
 
