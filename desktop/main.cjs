@@ -37,6 +37,9 @@ app.whenReady().then(async()=>{
   handle('image-add',data=>{const result=store.addAsset(data);changed();return result;});
   handle('image-pick',async()=>{const r=await dialog.showOpenDialog(win,{title:'加入照片或截图',properties:['openFile','multiSelections'],filters:[{name:'图片',extensions:['png','jpg','jpeg','webp','gif','bmp']}]});if(r.canceled)return[];return r.filePaths.map(file=>{if(fs.statSync(file).size>50*1024*1024)throw Error('单张图片请小于 50 MB');return store.addAsset(fs.readFileSync(file));});});
   handle('sync',()=>sync.run({...config}));
+  handle('cloud-usage',()=>new Dav(config).usage());
+  handle('retention-preview',policy=>sync.run({...config},{preview:policy}));
+  handle('retention-apply',proposal=>sync.run({...config},{apply:proposal}));
   handle('config-save',raw=>{
     if(sync.running)throw Error('请等待本次同步结束后再修改连接');
     const next=normalizeConfig({...raw,password:raw.password===''&&raw.keepPassword!==false?config.password:raw.password});

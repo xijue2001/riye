@@ -36,7 +36,7 @@ python3 android/build.py
 
 Windows构建会使用`.exe`版SDK工具、当前Python解释器和UTF-8源码。已有Android SDK可通过`ANDROID_SDK_ROOT`指定；须包含API 36与Build Tools 36.0.0。项目内`android/.tools/sdk-extracted/`的已校验工具优先使用，Windows和Linux的安卓构建采用同一份Java与共享界面源码。
 
-输出：`dist/Riye-Android-v0.1.5.apk`。安装包面向 Android 8.0 及以上，target API 36，无本机 CPU 库，适用于 Redmi 的 ARM64 设备。只申请 INTERNET 权限；图片和备份使用系统文档选择器。
+输出：`dist/Riye-Android-v0.1.7.apk`。安装包面向 Android 8.0 及以上，target API 36，无本机 CPU 库，适用于 Redmi 的 ARM64 设备。只申请 INTERNET 权限；图片和备份使用系统文档选择器。
 
 ## 自动验证
 
@@ -80,7 +80,7 @@ python3 scripts/package.py --source-only
 
 ## 发布限制
 
-暂无应用自动更新或 Android 后台同步；手机手动前台同步。每张照片上限 50 MB，完整备份总量上限 1 GB。当前全量记录和图片保存在各端；超大长期数据集的分页与历史清理未实现。
+暂无应用自动更新或 Android 后台同步；手机手动前台同步。每张照片上限 50 MB，完整备份总量上限 1 GB。当前全量记录和图片保存在各端；超大长期数据集的分页未实现；0.1.7 提供历史与草稿清理。
 
 
 ## 0.1.4 发布流程
@@ -92,3 +92,13 @@ python3 scripts/package.py --source-only
 ## 手动历史保存
 
 0.1.6 起，普通编辑以草稿保存。只有 Ctrl+S、“保存版本”或明确恢复历史时确认保存点。原 schema 1 记录字节格式保持不变，保存点另存于数据目录的 checkpoints/，按依赖顺序在 WebDAV 同名目录中同步。完整备份将保存点写入 manifest.json 的可选 history 数组，安卓原生流式 ZIP 保留同一字段。旧版继续读取原记录，建议所有设备一起升级以显示手动保存点。
+
+## 历史保留与启动验证（0.1.7）
+
+`node tests/retention-ui.cjs` 使用独立测试目录和 WebDAV 服务验证电脑、安卓适配界面的空间查询、预览、取消和清理，并以 6,000 份虚构记录检查一次批量启动读取。真实 Android 的原生批量读取由 DiskTest 检查，电脑中的适配界面计时不等同于实体手机耗时。
+
+`core/retention.cjs` 保留当前头、冲突头和期限内可见版本，用不可变清理事件保留被移除版本的关联编号。原始存活版本字节保持不变，实际图计算解析已清理的父版本；首次记录时间单独保留。各端先接收清理索引，再交换记录。旧事件及关联编号仍占少量元数据空间，正文体积不再随自动保存次数无限积累。
+
+先校验清理事件，再删除正文和对应历史标记。待上传清理事件以 retention-pending.json 保存，失败或进程重启后修复不完整上传，遇到有效但不同的远端事件拒绝覆盖。首次清理升级 info.json 至 schema 2 阻止旧客户端读取断开的原始关联。完整备份同步升级 schema 2，并在 manifest.retention 保留索引；未启用清理时仍生成 schema 1 备份。
+
+清理不移除原图、固定计划或 NAS 快照。本机配置、日记、retention.json、retention-pending.json 和 retentions/ 都属于私有数据，不提交到源码或发布附件。
