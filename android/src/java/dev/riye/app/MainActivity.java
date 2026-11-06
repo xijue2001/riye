@@ -74,6 +74,7 @@ public final class MainActivity extends Activity {
                 if(Arrays.asList("pick-images","export-backup","open-restore","finish").contains(op)){runOnUiThread(()->{try{uiRequest(id,op,a);}catch(Exception e){reply(id,null,e);}});return;}
                 worker.execute(()->{try{Object value;
                     switch(op){
+                        case "startup":value=disk.startup();break;
                         case "http":value=httpRequest(id,a);break;
                         case "load-config":value=loadConfig();break;
                         case "save-config":saveConfig(a);value=true;break;

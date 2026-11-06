@@ -54,6 +54,7 @@ public final class Disk {
     public synchronized Object operation(JSONObject q)throws Exception{
         String op=q.getString("op");File f=q.has("path")?resolve(q.getString("path")):null;
         switch(op){
+            case "startup": return startup();
             case "mkdir": if(!f.mkdirs()&&!f.isDirectory())throw new IOException("无法创建本地目录");return true;
             case "exists": return f.exists();
             case "list": {String[] names=f.list();if(names==null)throw new IOException("无法读取本地目录");Arrays.sort(names);return new JSONArray(Arrays.asList(names));}
@@ -69,6 +70,20 @@ public final class Disk {
             case "zip-close": closeZip();return true;
             default: throw new IOException("不支持的本地操作");
         }
+    }
+    // One bridge response instead of a synchronous WebView/native round trip
+    // for every revision, marker and image-existence check. Images stay on disk.
+    public synchronized JSONObject startup()throws Exception{
+        JSONObject files=new JSONObject(),directories=new JSONObject();
+        for(String dir:Arrays.asList("revisions","checkpoints","devices","assets","backups")){
+            File folder=resolve("/data/"+dir);if(!folder.mkdirs()&&!folder.isDirectory())throw new IOException("无法创建本地目录");
+            String[] names=folder.list();if(names==null)throw new IOException("无法读取本地目录");Arrays.sort(names);directories.put("/data/"+dir,new JSONArray(Arrays.asList(names)));
+            if(!dir.equals("assets")&&!dir.equals("backups"))for(String name:names)if(name.matches(UUID+"\\.json")){
+                File file=resolve("/data/"+dir+"/"+name);try{files.put("/data/"+dir+"/"+name,new String(bytes(file,4L*1024*1024),StandardCharsets.UTF_8));}catch(IOException e){files.put("/data/"+dir+"/"+name,"null");}
+            }
+        }
+        for(String name:Arrays.asList("profile.json","sync-state.json","retention.json","retention-pending.json")){File file=resolve("/data/"+name);if(file.isFile())files.put("/data/"+name,new String(bytes(file,128L*1024*1024),StandardCharsets.UTF_8));}
+        return new JSONObject().put("files",files).put("directories",directories);
     }
     private void pruneDaily()throws Exception{
         File folder=resolve("/data/backups");File[] files=folder.listFiles((dir,name)->name.matches("daily-\\d{4}-\\d{2}-\\d{2}\\.zip"));if(files==null)return;

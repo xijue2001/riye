@@ -44,3 +44,8 @@ Thumbs.db
 *.jar
 *.key
 *.pem
+
+# Private history retention state
+retention.json
+retention-pending.json
+retentions/

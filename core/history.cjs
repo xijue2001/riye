@@ -53,7 +53,7 @@ function onlyAdds(before,after){
   return next.done;
 }
 const newest=(a,b)=>b.timestamp.localeCompare(a.timestamp)||b.id.localeCompare(a.id);
-function historyVersions(revisions,events=[]){
+function historyVersions(revisions,events=[],explicitOnly=false){
   const index=new Map(revisions.map(r=>[r.id,r])),current=heads(revisions).sort(newest),checkpoints=[];
   const starts=new Set(events.filter(c=>c.kind==='start').map(c=>c.revisionId)),manual=manualScope(revisions,events),saved=new Map();
   for(const c of events.filter(c=>c.kind==='save').sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.id.localeCompare(b.id))){
@@ -61,7 +61,7 @@ function historyVersions(revisions,events=[]){
   }
   for(const child of revisions)for(const id of child.parents){
     const parent=index.get(id);
-    if(parent&&(!manual.has(child.id)||starts.has(child.id))&&!onlyAdds(parent,child))checkpoints.push(parent);
+    if(parent&&!explicitOnly&&(!manual.has(child.id)||starts.has(child.id))&&!onlyAdds(parent,child))checkpoints.push(parent);
   }
   checkpoints.push(...saved.values());
   const seen=new Set(),result=[];
